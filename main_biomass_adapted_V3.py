@@ -27,11 +27,11 @@ if __name__ == '__main__':
     num_points = 10_000
     augment = True
     num_augs = 2
-    batch_size = 12
+    batch_size = 13
     num_epochs = 100
     writer = SummaryWriter(comment="_10000_pts_n_lr_0.1_n_weight.decay_0.01_n_batch.size_12_n_num.augs_2_w_doubled_radius")
-    train_dataset_path = r'/Romeo_Data/train'
-    val_dataset_path = r'/Romeo_Data/val'
+    train_dataset_path = r'D:\Sync\Romeo_Data\train'
+    val_dataset_path = r'D:\Sync\Romeo_Data\val'
 
     #Device, model and optimizer setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

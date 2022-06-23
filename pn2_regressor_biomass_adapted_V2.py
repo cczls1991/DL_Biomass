@@ -33,13 +33,13 @@ class GlobalSAModule(torch.nn.Module):
 
 
 class Net(torch.nn.Module):
-    def __init__(self, num_features):
+    def __init__(self, num_features, activation_function):
         super().__init__()
 
         # Input channels account for both `pos` and node features.
-        self.sa1_module = SAModule(0.2, 2, MLP([3 + num_features, 64, 64, 128], act='LeakyReLU'))
-        self.sa2_module = SAModule(0.25, 8, MLP([128 + 3, 128, 128, 256], act='LeakyReLU'))
-        self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024*2], act='LeakyReLU'))
+        self.sa1_module = SAModule(0.2, 2, MLP([3 + num_features, 64, 64, 128], act=activation_function))
+        self.sa2_module = SAModule(0.25, 8, MLP([128 + 3, 128, 128, 256], act=activation_function))
+        self.sa3_module = GlobalSAModule(MLP([256 + 3, 256, 512, 1024*2], act=activation_function))
 
         self.mlp = MLP([1024*2, 128*2, 128*2, 1], act=None, dropout=0.5) #No activation function for the output layer following Oehmcke
 

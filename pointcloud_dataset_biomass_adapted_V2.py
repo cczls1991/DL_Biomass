@@ -84,7 +84,7 @@ class PointCloudsInFiles(InMemoryDataset):
         #Get plot ID from filename
         plotID = self.files[idx].name.split(".")[0]
         #Load biomass data
-        input_table = pd.read_csv(r"/Romeo_Data/Outputs/romeo_plots_w_biomass.csv", sep=",", header=0)
+        input_table = pd.read_csv(r"D:\Sync\Romeo_Data\Outputs\romeo_plots_w_biomass.csv", sep=",", header=0)
         #Extract target value for the correct plot ID
         target = input_table.loc[input_table["PlotID"] == int(plotID)]["total_AGB"].values
 
