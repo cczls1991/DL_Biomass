@@ -6,7 +6,7 @@ import numpy as np
 import pandas as pd
 
 
-def read_las(pointcloudfile,get_attributes=False,useevery=1,filter_ground=True,filter_height=1.3):
+def read_las(pointcloudfile, get_attributes=False, useevery=1, filter_height=1.3):
     '''
     :param pointcloudfile: specification of input file (format: las or laz)
     :param get_attributes: if True, will return all attributes in file, otherwise will only return XYZ (default is False)
@@ -20,7 +20,7 @@ def read_las(pointcloudfile,get_attributes=False,useevery=1,filter_ground=True,f
     coords = np.vstack((inFile.x, inFile.y, inFile.z)).transpose()
 
     #Remove points below specified threshold
-    if filter_ground == True:
+    if filter_height > 0:
         filter_arr = coords[:, 2] > filter_height
         coords = coords[filter_arr]
 
@@ -37,7 +37,7 @@ def read_las(pointcloudfile,get_attributes=False,useevery=1,filter_ground=True,f
 class PointCloudsInFiles(InMemoryDataset):
     """Point cloud dataset where one data point is a file."""
 
-    def __init__(self, root_dir, glob='*', max_points=200_000, use_columns=None, filter_ground=True, filter_height=1.3):
+    def __init__(self, root_dir, glob='*', max_points=200_000, use_columns=None, filter_height=1.3):
         """
         Args:
             root_dir (string): Directory with the datasets
@@ -50,7 +50,6 @@ class PointCloudsInFiles(InMemoryDataset):
         if use_columns is None:
             use_columns = []
         self.use_columns = use_columns
-        self.filter_ground = filter_ground
         self.filter_height = filter_height
 
         super().__init__()
@@ -63,7 +62,7 @@ class PointCloudsInFiles(InMemoryDataset):
             idx = idx.tolist()
 
         filename = str(self.files[idx])
-        coords, attrs = read_las(filename, get_attributes=True, filter_ground=self.filter_ground, filter_height=self.filter_height)
+        coords, attrs = read_las(filename, get_attributes=True, filter_height=self.filter_height)
 
         #Normalize Intensity
         attrs["intensity_normalized"] = attrs["intensity"] / 1000
