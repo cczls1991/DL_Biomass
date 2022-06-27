@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime as dt
 
-comment = "Overnight_w_more_params_"
+comment = "_test__"
 
 if __name__ == '__main__':
 
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     pruning = False
     early_stopping = True
     max_num_epochs = 300
-    run_time = 48*3600  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+    run_time = 0.1*3600  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
     train_dataset_path = r'D:\Sync\Romeo_Data\train'
     val_dataset_path = r'D:\Sync\Romeo_Data\val'
 
@@ -147,7 +147,7 @@ if __name__ == '__main__':
 
     # Begin hyperparameter tuning trials ------------------------------------------------------------
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=None, timeout=run_time, show_progress_bar=True)
+    study.optimize(objective, n_trials=1, timeout=run_time, show_progress_bar=True)
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
@@ -183,4 +183,6 @@ if __name__ == '__main__':
     df = study.trials_dataframe()
     assert isinstance(df, pd.DataFrame)
     t_now = dt.now().strftime("%Y_%m_%d_%H_%M_%S")
-    df.to_excel(rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}_Hyperparameter_tuning_results_{t_now}_.xlsx")
+    #Remove column suffixes
+    df.columns = df.columns.str.replace("params_", "")
+    df.to_csv(rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}_Hyperparameter_tuning_results_{t_now}_.csv")
