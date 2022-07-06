@@ -17,7 +17,7 @@ from tqdm import tqdm
 if __name__ == '__main__':
 
     #Load most recent optimized hyperparameter tunings'
-    folder_path = r'D:\Sync\DL_Development\Hyperparameter_Tuning'
+    folder_path = r'/DL_Development/Hyperparameter_Tuning'
     file_type = r'\*.csv'
     files = glob.glob(folder_path + file_type)
     hp = max(files, key=os.path.getctime)
@@ -44,8 +44,8 @@ if __name__ == '__main__':
     dropout_probability = 0.55
     num_epochs = 9
     writer = SummaryWriter(comment="updated_hyperparameters")
-    train_dataset_path = r'D:\Sync\Romeo_Data\train'
-    val_dataset_path = r'D:\Sync\Romeo_Data\val'
+    train_dataset_path = r'/Romeo_Data/train'
+    val_dataset_path = r'/Romeo_Data/val'
 
     #Device, model and optimizer setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -168,7 +168,7 @@ if __name__ == '__main__':
     #Plot the change in training and validation MSE --------------------------------------------------
 
     #Load most recent model and set of training results
-    folder_path = r'D:\Sync\DL_Development\Models'
+    folder_path = r'/DL_Development/Models'
     file_type = r'\*.csv'
     files = glob.glob(folder_path + file_type)
     training_results = max(files, key=os.path.getctime)

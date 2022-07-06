@@ -13,61 +13,68 @@ import os.path
 import glob
 import pandas as pd
 from tqdm import tqdm
+import sklearn.metrics as metrics
+from math import sqrt
+import pprint as pp
 
 if __name__ == '__main__':
 
-    #Load most recent optimized hyperparameter tunings'
-    folder_path = r'D:\Sync\DL_Development\Hyperparameter_Tuning'
-    file_type = r'\*.csv'
-    files = glob.glob(folder_path + file_type)
-    hp = max(files, key=os.path.getctime)
-    hp = pd.read_csv(hp, sep=",", header=0)
+    #Specify hyperparameter file
+    hp_file = "D:\Sync\DL_Development\Hyperparameter_Tuning\Sunday_Monday_more_params__Hyperparameter_tuning_results_2022_06_27_08_30_41_.csv"
+    #...or get most recent hyperparameter tuning
+    if hp_file is None:
+        folder_path = r'D:\Sync\DL_Development\Hyperparameter_Tuning'
+        file_type = r'\*.csv'
+        files = glob.glob(folder_path + file_type)
+        hp_file = max(files, key=os.path.getctime)
+
+    # Load hyperparameter tunings
+    hp = pd.read_csv(hp_file, sep=",", header=0, index_col=0)
     hp = hp.sort_values(by="value", ascending=True)
+    #Drop unwated cols
+    hp = hp.drop(labels=['number', 'datetime_start', 'datetime_complete', 'duration', 'state'], axis=1)
     #Select the params with the lowest MSE value (row 1)
     hp = hp.iloc[0]
     #Convert to dictionary
     hp = hp.to_dict()
+    print("Hyperparameters from:\n", hp_file, "\n")
+    pp.pprint(hp, width=1)
 
-    #SETUP HYPERPARAMETERS
+    #SETUP ADDITIONAL HYPERPARAMETERS
     model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}.model'
     use_columns = ['intensity_normalized']
     num_points = 2_000
     early_stopping = True
-    patience = 5
-    num_augs = 4
-    batch_size = 16
-    learning_rate = 0.001470856225557105
-    weight_decay = 1.1792808360795387e-09
-    ground_filter_height = 0.2
-    activation_function = "ReLU"
-    neuron_multiplier = 4
-    dropout_probability = 0.55
-    num_epochs = 9
+    num_epochs = 200
     writer = SummaryWriter(comment="updated_hyperparameters")
-    train_dataset_path = r'D:\Sync\Romeo_Data\train'
-    val_dataset_path = r'D:\Sync\Romeo_Data\val'
+    train_dataset_path = r'D:\Sync\Data\Model_Input\train'
+    val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
     #Device, model and optimizer setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = Net(num_features=len(use_columns),
-                activation_function=activation_function,
-                neuron_multiplier=neuron_multiplier,
-                dropout_probability=dropout_probability
+                activation_function=hp['activation_function'],
+                neuron_multiplier=hp['neuron_multiplier'],
+                dropout_probability=hp['dropout_probability']
                 ).to(device)
 
-    optimizer = torch.optim.AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
+    # Set optimizer
+    if hp['optimizer'] == "Adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
     #Set device
     print(f"Using {device} device.")
 
     #Get training and val datasets
-    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns, filter_height=ground_filter_height)
-    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,  filter_height=ground_filter_height)
+    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns, filter_height=hp['ground_filter_height'])
+    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,  filter_height=hp['ground_filter_height'])
 
     #Augment training data
-    if num_augs > 0:
-        for i in range(num_augs):
+    if hp['num_augs'] > 0:
+        for i in range(hp['num_augs']):
             aug_trainset = AugmentPointCloudsInFiles(
                 train_dataset_path,
                 "*.las",
@@ -77,11 +84,11 @@ if __name__ == '__main__':
 
             # Concat training and augmented training datasets
             train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
-            print(f"Adding {i+1} augmentation of {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
+        print(f"Adding {hp['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
 
     #Set up pytorch training and validation loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True, num_workers=0)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False, num_workers=0)
+    train_loader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True, num_workers=0)
+    val_loader = DataLoader(val_dataset, batch_size=hp['batch_size'], shuffle=False, num_workers=0)
 
 #Define training function
     def train():
@@ -95,9 +102,9 @@ if __name__ == '__main__':
             loss.backward()
             optimizer.step()
             if (i + 1) % 1 == 0:
-                #tqdm.write(str(f'[{i + 1}/{len(train_loader)}] MSE Loss: {loss.to("cpu"):.4f} '))
+                tqdm.write(str(f'[{i + 1}/{len(train_loader)}] MSE Loss: {loss.to("cpu"):.4f} '))
                 loss_list.append(loss.detach().to("cpu").numpy())
-            #tqdm.write('Mean loss this epoch:', np.mean(loss_list))
+            #tqdm.write(str('Mean loss this epoch:', str(np.mean(loss_list))))
         return np.mean(loss_list)
 
     def val(loader, ep_id): #Note sure what ep_id does
@@ -135,8 +142,8 @@ if __name__ == '__main__':
             if early_stopping is True:
                 if val_mse > last_val_mse:
                     trigger_times += 1
-                    tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(patience))
-                    if trigger_times >= patience:
+                    tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(hp['patience']))
+                    if trigger_times >= hp['patience']:
                         print(f'\nEarly stopping at epoch {epoch}!\n')
                         return
                 else:
@@ -144,8 +151,7 @@ if __name__ == '__main__':
                     last_val_mse = val_mse
 
             #Report epoch stats
-            tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(
-                round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
+            tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
 
             #Determine whether to save the model based on val MSE
             val_mse_list.append(val_mse)
@@ -162,8 +168,7 @@ if __name__ == '__main__':
         return
 
     #Run training loop
-    model = main()
-
+    main()
 
     #Plot the change in training and validation MSE --------------------------------------------------
 
@@ -184,5 +189,50 @@ if __name__ == '__main__':
     red_patch = mpatches.Patch(color='red', label='Validation')
     blue_patch = mpatches.Patch(color='blue', label='Training')
     plt.legend(handles=[red_patch, blue_patch])
+
+    # Apply the model to test data ---------------------------------------------------------------------------------
+
+    # Get test data
+    test_dataset = PointCloudsInFiles(r"D:\Sync\Data\Model_Input\test", '*.las', max_points=num_points,
+                                      use_columns=use_columns,
+                                      filter_height=0.2)
+
+    test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=True, num_workers=0)
+
+    model.eval()
+    for idx, data in enumerate(test_loader):
+        data = data.to(device)
+    pred = model(data)[:, 0].to('cpu').detach().numpy()
+    obs = data.y.to('cpu').detach().numpy()
+
+    # Calculate R^2 and RMSE for test dataset
+    test_r2 = round(metrics.r2_score(obs, pred), 3)
+    test_rmse = round(sqrt(metrics.mean_squared_error(obs, pred)), 2)
+    print(f"\nResults for test data: \nR2: {test_r2}\nRMSE: {test_rmse}")
+
+    # Get residuals
+    resid = obs - pred
+
+    # Plot observed vs. predicted
+    f, (ax1, ax2) = plt.subplots(2, 1)
+    ax1.scatter(obs, pred)
+    ax1.set(xlabel='Observed Biomass (Tons)', ylabel='Predicted Biomass (Tons)')
+    plt.figtext(0.1, 0.65, f"R2: {test_r2}\nRMSE: {test_rmse}",
+                horizontalalignment="center",
+                verticalalignment="center",
+                transform=ax1.transAxes)
+
+    # Plot residuals
+    ax2.scatter(pred, resid)
+    ax2.set(xlabel='Predicted Biomass (Tons)', ylabel='Residuals')
+
+    # set the spacing between subplots
+    plt.subplots_adjust(left=0.1,
+                        bottom=0.1,
+                        right=0.9,
+                        top=0.9,
+                        wspace=0.4,
+                        hspace=0.5)
+    plt.show()
 
 

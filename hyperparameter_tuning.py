@@ -26,8 +26,8 @@ if __name__ == '__main__':
     early_stopping = True
     max_num_epochs = 300
     run_time = 0.1*3600  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
-    train_dataset_path = r'D:\Sync\Romeo_Data\train'
-    val_dataset_path = r'D:\Sync\Romeo_Data\val'
+    train_dataset_path = r'D:\Sync\Data\Model_Input\train'
+    val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
     # Define obective function used in optuna
     def objective(trial):

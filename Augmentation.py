@@ -40,6 +40,10 @@ def read_las(pointcloudfile, get_attributes=True, useevery=1):
             attributes[las_field] = inFile.points[las_field][::useevery]
         return (coords, attributes)
 
+def normalize_intensity(intensity_vals):
+    i_norm = ((intensity_vals - min(intensity_vals)) / (max(intensity_vals) - min(intensity_vals)))*20 #Multiply by 20 so that intensity vals take on similar range to biomass vals
+    return i_norm
+
 
 def rotate_points(coords):
     rotation = np.random.uniform(-180, 180)
@@ -146,7 +150,7 @@ class AugmentPointCloudsInFiles(InMemoryDataset):
         coords, attrs = read_las(filename, get_attributes=True)
 
         # Normalize Intensity
-        attrs["intensity_normalized"] = attrs["intensity"] / 1000
+        attrs["intensity_normalized"] = normalize_intensity(attrs["intensity"])
 
         # Resample number of points to max_points
         if coords.shape[0] >= self.max_points:
@@ -175,9 +179,9 @@ class AugmentPointCloudsInFiles(InMemoryDataset):
         #Get plot ID from filename
         plotID = self.files[idx].name.split(".")[0]
         #Load biomass data
-        input_table = pd.read_csv(r"D:\Sync\Romeo_Data\Outputs\romeo_plots_w_biomass.csv", sep=",", header=0)
+        input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
         #Extract target value for the correct plot ID
-        target = input_table.loc[input_table["PlotID"] == int(plotID)]["total_AGB"].values
+        target = input_table.loc[input_table["PlotID"] == plotID]["total_AGB"].values
 
         # Transform data to tensor
         sample = Data(

@@ -34,6 +34,11 @@ def read_las(pointcloudfile, get_attributes=False, useevery=1, filter_height=1.3
             attributes[las_field] = inFile.points[las_field][::useevery]
         return (coords, attributes)
 
+def normalize_intensity(intensity_vals):
+    i_norm = ((intensity_vals - min(intensity_vals)) / (max(intensity_vals) - min(intensity_vals)))*20 #Multiply by 20 so that intensity vals take on similar range to biomass vals
+    return i_norm
+
+
 class PointCloudsInFiles(InMemoryDataset):
     """Point cloud dataset where one data point is a file."""
 
@@ -65,7 +70,7 @@ class PointCloudsInFiles(InMemoryDataset):
         coords, attrs = read_las(filename, get_attributes=True, filter_height=self.filter_height)
 
         #Normalize Intensity
-        attrs["intensity_normalized"] = attrs["intensity"] / 1000
+        attrs["intensity_normalized"] = normalize_intensity(attrs["intensity"])
 
         if coords.shape[0] >= self.max_points:
             use_idx = np.random.choice(coords.shape[0], self.max_points, replace=False)
@@ -83,9 +88,9 @@ class PointCloudsInFiles(InMemoryDataset):
         #Get plot ID from filename
         plotID = self.files[idx].name.split(".")[0]
         #Load biomass data
-        input_table = pd.read_csv(r"D:\Sync\Romeo_Data\Outputs\romeo_plots_w_biomass.csv", sep=",", header=0)
+        input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
         #Extract target value for the correct plot ID
-        target = input_table.loc[input_table["PlotID"] == int(plotID)]["total_AGB"].values
+        target = input_table.loc[input_table["PlotID"] == plotID]["total_AGB"].values
 
         sample = Data(x=torch.from_numpy(x).float(),
                       y=torch.from_numpy(np.array(target)).float(),
