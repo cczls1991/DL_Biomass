@@ -2,9 +2,9 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
-from pn2_regressor_V3 import Net
-from pointcloud_dataset_V2 import PointCloudsInFiles
-from Augmentation import AugmentPointCloudsInFiles
+from pointnet2_regressor import Net
+from pointcloud_dataloader import PointCloudsInFiles
+from augmentation import AugmentPointCloudsInFiles
 from datetime import datetime as dt
 from torch.utils.tensorboard import SummaryWriter
 import matplotlib.pyplot as plt
@@ -19,38 +19,33 @@ import pprint as pp
 
 if __name__ == '__main__':
 
-    #Specify hyperparameter file
-    hp_file = "D:\Sync\DL_Development\Hyperparameter_Tuning\Sunday_Monday_more_params__Hyperparameter_tuning_results_2022_06_27_08_30_41_.csv"
-    #...or get most recent hyperparameter tuning
-    if hp_file is None:
-        folder_path = r'D:\Sync\DL_Development\Hyperparameter_Tuning'
-        file_type = r'\*.csv'
-        files = glob.glob(folder_path + file_type)
-        hp_file = max(files, key=os.path.getctime)
+    # Specify hyperparameter tunings
+    hp = {'lr': 0.0005753187813135093,
+          'weight_decay': 8.0250963438986e-05,
+          'batch_size': 28,
+          'num_augs': 7,
+          'patience': 28,
+          'ground_filter_height': 0.2,
+          'activation_function': "ReLU",
+          'optimizer': "Adam",
+          'neuron_multiplier': 0,
+          'dropout_probability': 0.55
+          }
 
-    # Load hyperparameter tunings
-    hp = pd.read_csv(hp_file, sep=",", header=0, index_col=0)
-    hp = hp.sort_values(by="value", ascending=True)
-    #Drop unwated cols
-    hp = hp.drop(labels=['number', 'datetime_start', 'datetime_complete', 'duration', 'state'], axis=1)
-    #Select the params with the lowest MSE value (row 1)
-    hp = hp.iloc[0]
-    #Convert to dictionary
-    hp = hp.to_dict()
-    print("Hyperparameters from:\n", hp_file, "\n")
+    print("Hyperparameters:\n")
     pp.pprint(hp, width=1)
 
-    #SETUP ADDITIONAL HYPERPARAMETERS
+    # SETUP ADDITIONAL HYPERPARAMETERS
     model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}.model'
     use_columns = ['intensity_normalized']
-    num_points = 2_000
+    num_points = 5_000
     early_stopping = True
     num_epochs = 200
     writer = SummaryWriter(comment="updated_hyperparameters")
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
-    #Device, model and optimizer setup
+    # Device, model and optimizer setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     model = Net(num_features=len(use_columns),
@@ -65,14 +60,16 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
-    #Set device
+    # Set device
     print(f"Using {device} device.")
 
-    #Get training and val datasets
-    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns, filter_height=hp['ground_filter_height'])
-    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,  filter_height=hp['ground_filter_height'])
+    # Get training and val datasets
+    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+                                       filter_height=hp['ground_filter_height'])
+    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+                                     filter_height=hp['ground_filter_height'])
 
-    #Augment training data
+    # Augment training data
     if hp['num_augs'] > 0:
         for i in range(hp['num_augs']):
             aug_trainset = AugmentPointCloudsInFiles(
@@ -84,13 +81,15 @@ if __name__ == '__main__':
 
             # Concat training and augmented training datasets
             train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
-        print(f"Adding {hp['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
+        print(
+            f"Adding {hp['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
 
-    #Set up pytorch training and validation loaders
+    # Set up pytorch training and validation loaders
     train_loader = DataLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True, num_workers=0)
     val_loader = DataLoader(val_dataset, batch_size=hp['batch_size'], shuffle=False, num_workers=0)
 
-#Define training function
+
+    # Define training function
     def train():
         model.train()
         loss_list = []
@@ -101,13 +100,13 @@ if __name__ == '__main__':
             loss = F.mse_loss(out, data.y)
             loss.backward()
             optimizer.step()
-            if (i + 1) % 1 == 0:
-                tqdm.write(str(f'[{i + 1}/{len(train_loader)}] MSE Loss: {loss.to("cpu"):.4f} '))
+            if (idx + 1) % 1 == 0:
+                # tqdm.write(str(f'[{idx + 1}/{len(train_loader)}] Loss: {loss.to("cpu"):.4f} '))
                 loss_list.append(loss.detach().to("cpu").numpy())
-            #tqdm.write(str('Mean loss this epoch:', str(np.mean(loss_list))))
         return np.mean(loss_list)
 
-    def val(loader, ep_id): #Note sure what ep_id does
+
+    def val(loader, ep_id):  # Note sure what ep_id does
         with torch.no_grad():
             model.eval()
             losses = []
@@ -118,18 +117,19 @@ if __name__ == '__main__':
                 losses.append(float(loss.to("cpu")))
             return float(np.mean(losses))
 
+
     def main():
-        #Add trigger_times, last val MSE value, and val mse list for early stopping process
+        # Add trigger_times, last val MSE value, and val mse list for early stopping process
         trigger_times = 0
         last_val_mse = np.inf
         val_mse_list = []
 
-        #Training loop
-        for epoch in tqdm(range(0, num_epochs), colour="green"):
+        # Training loop
+        for epoch in tqdm(range(0, num_epochs), colour="green", position=0, leave=True):
             train_mse = train()
             val_mse = val(val_loader, epoch)
 
-            #Record epoch results
+            # Record epoch results
             if num_epochs > 10:
                 writer.add_scalar("Training MSE", train_mse, epoch)  # Save to tensorboard summary
                 writer.add_scalar("Validation MSE", val_mse, epoch)  # Save to tensorboard summary
@@ -138,11 +138,11 @@ if __name__ == '__main__':
                     f'{epoch}, {train_mse}, {val_mse}\n'
                 )
 
-            #Early stopping
+            # Early stopping
             if early_stopping is True:
                 if val_mse > last_val_mse:
                     trigger_times += 1
-                    tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(hp['patience']))
+                    # tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(hp['patience']))
                     if trigger_times >= hp['patience']:
                         print(f'\nEarly stopping at epoch {epoch}!\n')
                         return
@@ -150,13 +150,13 @@ if __name__ == '__main__':
                     trigger_times = 0
                     last_val_mse = val_mse
 
-            #Report epoch stats
-            tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
+            # Report epoch stats
+            # tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
 
-            #Determine whether to save the model based on val MSE
+            # Determine whether to save the model based on val MSE
             val_mse_list.append(val_mse)
             if val_mse <= min(val_mse_list):
-                tqdm.write("    Saving model for epoch " + str(epoch))
+                # tqdm.write("    Saving model for epoch " + str(epoch))
                 torch.save(model, model_path)
 
         # Terminate tensorboard writer
@@ -167,12 +167,13 @@ if __name__ == '__main__':
 
         return
 
-    #Run training loop
+
+    # Run training loop
     main()
 
-    #Plot the change in training and validation MSE --------------------------------------------------
+    # Plot the change in training and validation MSE --------------------------------------------------
 
-    #Load most recent model and set of training results
+    # Load most recent model and set of training results
     folder_path = r'D:\Sync\DL_Development\Models'
     file_type = r'\*.csv'
     files = glob.glob(folder_path + file_type)
@@ -180,7 +181,7 @@ if __name__ == '__main__':
     training_results = pd.read_csv(training_results, sep=",", header=None)
     training_results.columns = ['epoch', 'train_mse', 'val_mse']
 
-    #Plot the change in training and validation mse over time
+    # Plot the change in training and validation mse over time
     fig, ax = plt.subplots()
     ax.plot(training_results["epoch"], training_results["train_mse"], color="blue", marker="o")
     ax.set_xlabel("Epoch")

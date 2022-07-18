@@ -2,8 +2,8 @@ import os.path
 import glob
 import torch
 from torch_geometric.loader import DataLoader
-from pointcloud_dataset_V2 import PointCloudsInFiles
-from pn2_regressor_V3 import Net
+from pointcloud_dataloader import PointCloudsInFiles
+from pointnet2_regressor import Net
 from matplotlib import pyplot as plt
 import sklearn.metrics as metrics
 from math import sqrt
@@ -32,7 +32,7 @@ else:
 print("Using model:", model_file)
 
 # Get test data
-test_dataset = PointCloudsInFiles(r"D:\Sync\Romeo_Data\test", '*.las', max_points=num_points, use_columns=use_columns,
+test_dataset = PointCloudsInFiles(r"D:\Sync\Data\Model_Input\test", '*.las', max_points=num_points, use_columns=use_columns,
                                   filter_height=0.2)
 
 test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=True, num_workers=0)

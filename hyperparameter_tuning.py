@@ -2,16 +2,16 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from torch_geometric.loader import DataLoader
-from pn2_regressor_V3 import Net
-from pointcloud_dataset_V2 import PointCloudsInFiles
-from Augmentation import AugmentPointCloudsInFiles
+from pointnet2_regressor import Net
+from pointcloud_dataloader import PointCloudsInFiles
+from augmentation import AugmentPointCloudsInFiles
 import optuna
 from optuna.trial import TrialState
 import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime as dt
 
-comment = "_test__"
+comment = "BC_n_Petawawa_data_added_trial_1"
 
 if __name__ == '__main__':
 
@@ -21,11 +21,11 @@ if __name__ == '__main__':
 
     # SET UP STATIC PARAMETERS
     use_columns = ['intensity_normalized']
-    num_points = 2_000
     pruning = False
     early_stopping = True
-    max_num_epochs = 300
-    run_time = 0.1*3600  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+    max_num_epochs = 400
+    n_trials = None
+    run_time = 24*3600*5  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
@@ -37,14 +37,16 @@ if __name__ == '__main__':
                'weight_decay': trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
                'batch_size': trial.suggest_int('batch_size', low=2, high=32, step=2),
                'num_augs': trial.suggest_int('num_augs', low=0, high=10, step=1),
-               'patience': trial.suggest_int('patience', low=5, high=40, step=1),
+               'num_points': trial.suggest_int('num_points', low=500, high=3000, step=500),
+               'neuron_multiplier': 0, #trial.suggest_int('neuron_multiplier', low=0, high=2, step=2),
+               'patience': trial.suggest_int('patience', low=5, high=50, step=5),
                'ground_filter_height': trial.suggest_float("ground_filter_height", 0, 2, step=0.2),
-               #'lidar_attrs': trial.suggest_categorical('lidar_attrs', ['intensity_normalized', 'classification', 'return_num']),
                'activation_function': trial.suggest_categorical('activation_function', ['ReLU', 'LeakyReLU', 'ELU']),
                'optimizer': trial.suggest_categorical('optimizer', ["Adam", "AdamW"]),
-               'neuron_multiplier': trial.suggest_int('neuron_multiplier', low=0, high=6, step=2),
                'dropout_probability': trial.suggest_float("dropout_probability", 0.4, 0.8, step=0.05)
+               # 'lidar_attrs': trial.suggest_categorical('lidar_attrs', ['intensity_normalized', 'classification', 'return_num'])
                }
+
 
         #Specify input lidar attributes
         #if cfg['lidar_attrs'] == 'classification':
@@ -57,25 +59,24 @@ if __name__ == '__main__':
         #Set model hyperparameters
         model = Net(num_features=len(use_columns),
                     activation_function=cfg['activation_function'],
-                    neuron_multiplier= cfg['neuron_multiplier'],
+                    neuron_multiplier=cfg['neuron_multiplier'],
                     dropout_probability=cfg['dropout_probability']
                     ).to(device)
 
         # Get training and val datasets
-        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns, filter_height=cfg['ground_filter_height'])
-        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns, filter_height=cfg['ground_filter_height'])
+        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns, filter_height=cfg['ground_filter_height'])
+        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns, filter_height=cfg['ground_filter_height'])
 
         # Set up pytorch training and validation loaders
         train_loader = DataLoader(train_dataset, batch_size=cfg['batch_size'], shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, 30, True, 0)
-
+        val_loader = DataLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=True, num_workers=0)
         # Augment training data
         if cfg['num_augs'] > 0:
             for i in range(cfg['num_augs']):
                 aug_trainset = AugmentPointCloudsInFiles(
                     train_dataset_path,
                     "*.las",
-                    max_points=num_points,
+                    max_points=cfg['num_points'],
                     use_columns=use_columns
                 )
 
@@ -95,7 +96,6 @@ if __name__ == '__main__':
 
         # Loop through each epoch
         for epoch in range(0, max_num_epochs):
-
             # Set training loop
             model.train()
             loss_list = []
@@ -146,8 +146,9 @@ if __name__ == '__main__':
 
 
     # Begin hyperparameter tuning trials ------------------------------------------------------------
+    print("Begining tuning for", comment)
     study = optuna.create_study(direction="minimize")
-    study.optimize(objective, n_trials=1, timeout=run_time, show_progress_bar=True)
+    study.optimize(objective, n_trials=n_trials, timeout=run_time, show_progress_bar=True)
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
     complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
@@ -166,7 +167,6 @@ if __name__ == '__main__':
     for key, value in best_trial.params.items():
         print("    {}: {}".format(key, value))
 
-    print("Point density:", num_points)
     print("Run time:", run_time/3600, "hours")
 
     # Visualize parameter importance ------------------------------------------------------------
