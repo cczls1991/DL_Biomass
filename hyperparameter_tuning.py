@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime as dt
 
-comment = "BC_n_Petawawa_data_added_trial_1"
+comment = "focusing_on_important_HPs"
 
 if __name__ == '__main__':
 
@@ -25,7 +25,7 @@ if __name__ == '__main__':
     early_stopping = True
     max_num_epochs = 400
     n_trials = None
-    run_time = 24*3600*5  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+    run_time = 3600*16  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
@@ -34,16 +34,16 @@ if __name__ == '__main__':
 
         # SET UP TUNING PARAMETERS
         cfg = {'lr': trial.suggest_float("lr", 1e-5, 1e-1, log=True),
-               'weight_decay': trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
                'batch_size': trial.suggest_int('batch_size', low=2, high=32, step=2),
-               'num_augs': trial.suggest_int('num_augs', low=0, high=10, step=1),
-               'num_points': trial.suggest_int('num_points', low=500, high=3000, step=500),
+               'weight_decay': 3.6384310505999963e-10, #trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
+               'num_augs': 8, #trial.suggest_int('num_augs', low=0, high=10, step=1),
+               'num_points': 7000, #trial.suggest_int('num_points', low=500, high=3000, step=500),
                'neuron_multiplier': 0, #trial.suggest_int('neuron_multiplier', low=0, high=2, step=2),
-               'patience': trial.suggest_int('patience', low=5, high=50, step=5),
-               'ground_filter_height': trial.suggest_float("ground_filter_height", 0, 2, step=0.2),
-               'activation_function': trial.suggest_categorical('activation_function', ['ReLU', 'LeakyReLU', 'ELU']),
-               'optimizer': trial.suggest_categorical('optimizer', ["Adam", "AdamW"]),
-               'dropout_probability': trial.suggest_float("dropout_probability", 0.4, 0.8, step=0.05)
+               'patience': 50, #trial.suggest_int('patience', low=5, high=50, step=5),
+               'ground_filter_height': 0, #trial.suggest_float("ground_filter_height", 0, 2, step=0.2),
+               'activation_function': 'ReLU', #trial.suggest_categorical('activation_function', ['ReLU', 'LeakyReLU', 'ELU']),
+               'optimizer': "Adam", #trial.suggest_categorical('optimizer', ["Adam", "AdamW"]),
+               'dropout_probability': 0.55, #trial.suggest_float("dropout_probability", 0.4, 0.8, step=0.05)
                # 'lidar_attrs': trial.suggest_categorical('lidar_attrs', ['intensity_normalized', 'classification', 'return_num'])
                }
 

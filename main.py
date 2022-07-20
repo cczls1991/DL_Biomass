@@ -19,6 +19,25 @@ import pprint as pp
 
 if __name__ == '__main__':
 
+    # SETUP STATIC HYPERPARAMETERS
+    model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}.model'
+    use_columns = ['intensity_normalized']
+    use_datasets = ["BC"]  # Possible datasets: BC, RM, PF
+    num_points = 7_000
+    early_stopping = True
+    num_epochs = 200
+    writer = SummaryWriter(comment="updated_hyperparameters")
+    train_dataset_path = r'D:\Sync\Data\Model_Input\train'
+    val_dataset_path = r'D:\Sync\Data\Model_Input\val'
+    test_dataset_path = r'D:\Sync\Data\Model_Input\test'
+
+    # Report additional hyperparameters
+    print(f"Dataset(s): {use_datasets}")
+    print(f"Additional features used: {use_columns}")
+    print(f"Using {num_points} points per plot")
+    print(f"Early stopping: {early_stopping}")
+    print(f"Max number of epochs: {num_epochs}")
+
     # Specify hyperparameter tunings
     hp = {'lr': 0.0005753187813135093,
           'weight_decay': 8.0250963438986e-05,
@@ -32,22 +51,13 @@ if __name__ == '__main__':
           'dropout_probability': 0.55
           }
 
-    print("Hyperparameters:\n")
+    print("\nHyperparameters:\n")
     pp.pprint(hp, width=1)
-
-    # SETUP ADDITIONAL HYPERPARAMETERS
-    model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}.model'
-    use_columns = ['intensity_normalized']
-    num_points = 5_000
-    early_stopping = True
-    num_epochs = 200
-    writer = SummaryWriter(comment="updated_hyperparameters")
-    train_dataset_path = r'D:\Sync\Data\Model_Input\train'
-    val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
     # Device, model and optimizer setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
+    #Set model
     model = Net(num_features=len(use_columns),
                 activation_function=hp['activation_function'],
                 neuron_multiplier=hp['neuron_multiplier'],
@@ -60,14 +70,16 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
-    # Set device
+    # Note device, dataset
     print(f"Using {device} device.")
 
-    # Get training and val datasets
+    # Get training val, and test datasets
     train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                       filter_height=hp['ground_filter_height'])
+                                       filter_height=hp['ground_filter_height'], dataset=use_datasets)
     val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                     filter_height=hp['ground_filter_height'])
+                                     filter_height=hp['ground_filter_height'], dataset=use_datasets)
+    test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points,
+                                      use_columns=use_columns, filter_height=0.2, dataset=use_datasets)
 
     # Augment training data
     if hp['num_augs'] > 0:
@@ -77,6 +89,8 @@ if __name__ == '__main__':
                 "*.las",
                 max_points=num_points,
                 use_columns=use_columns,
+                filter_height=hp['ground_filter_height'],
+                dataset=use_datasets
             )
 
             # Concat training and augmented training datasets
@@ -192,12 +206,6 @@ if __name__ == '__main__':
     plt.legend(handles=[red_patch, blue_patch])
 
     # Apply the model to test data ---------------------------------------------------------------------------------
-
-    # Get test data
-    test_dataset = PointCloudsInFiles(r"D:\Sync\Data\Model_Input\test", '*.las', max_points=num_points,
-                                      use_columns=use_columns,
-                                      filter_height=0.2)
-
     test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=True, num_workers=0)
 
     model.eval()
