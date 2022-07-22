@@ -121,3 +121,5 @@ ax = fig.add_subplot(224, projection='3d')
 ax.scatter(coords_list[3][:, 0], coords_list[3][:, 1], coords_list[3][:, 2], c=coords_list[3][:, 2], cmap='viridis', linewidth=0.5)
 
 plt.show()
+
+

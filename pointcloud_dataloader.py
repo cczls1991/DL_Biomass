@@ -107,15 +107,16 @@ class PointCloudsInFiles(InMemoryDataset):
 
         # Load target biomass data
         #Get plot ID from filename
-        plotID = self.files[idx].name.split(".")[0]
+        PlotID = self.files[idx].name.split(".")[0]
         #Load biomass data
         input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
         #Extract target value for the correct plot ID
-        target = input_table.loc[input_table["PlotID"] == plotID]["total_AGB"].values
+        target = input_table.loc[input_table["PlotID"] == PlotID]["total_AGB"].values
 
         sample = Data(x=torch.from_numpy(x).float(),
                       y=torch.from_numpy(np.array(target)).float(),
-                      pos=torch.from_numpy(coords[use_idx, :]).float())
+                      pos=torch.from_numpy(coords[use_idx, :]).float(),
+                      PlotID=PlotID)
         if coords.shape[0] < 100:
             return None
         return sample

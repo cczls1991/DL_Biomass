@@ -201,11 +201,11 @@ class AugmentPointCloudsInFiles(InMemoryDataset):
 
         # Load target biomass data
         #Get plot ID from filename
-        plotID = self.files[idx].name.split(".")[0]
+        PlotID = self.files[idx].name.split(".")[0]
         #Load biomass data
         input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
         #Extract target value for the correct plot ID
-        target = input_table.loc[input_table["PlotID"] == plotID]["total_AGB"].values
+        target = input_table.loc[input_table["PlotID"] == PlotID]["total_AGB"].values
 
         # Transform data to tensor
         sample = Data(
