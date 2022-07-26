@@ -22,10 +22,10 @@ if __name__ == '__main__':
     # SETUP STATIC HYPERPARAMETERS
     model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}.model'
     use_columns = ['intensity_normalized']
-    use_datasets = ["BC"]  # Possible datasets: BC, RM, PF
-    num_points = 7_000
+    use_datasets = ["BC", "RM", "PF"]  # Possible datasets: BC, RM, PF
+    num_points = 7000
     early_stopping = True
-    num_epochs = 200
+    num_epochs = 400
     writer = SummaryWriter(comment="updated_hyperparameters")
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
@@ -110,12 +110,14 @@ if __name__ == '__main__':
         for idx, data in enumerate(train_loader):
             data = data.to(device)
             optimizer.zero_grad()
-            out = model(data)[:, 0]
-            loss = F.mse_loss(out, data.y)
+            #Predict values and ensure that pred. and obs. tensors have same shape
+            outs = torch.reshape(model(data), (len(data.y), 1))
+            data.y = torch.reshape(data.y, (len(data.y), 1))
+            loss = F.mse_loss(outs, data.y)
             loss.backward()
             optimizer.step()
             if (idx + 1) % 1 == 0:
-                # tqdm.write(str(f'[{idx + 1}/{len(train_loader)}] Loss: {loss.to("cpu"):.4f} '))
+                tqdm.write(str(f'[{idx + 1}/{len(train_loader)}] Loss: {loss.to("cpu"):.4f} '))
                 loss_list.append(loss.detach().to("cpu").numpy())
         return np.mean(loss_list)
 
@@ -126,9 +128,11 @@ if __name__ == '__main__':
             losses = []
             for idx, data in enumerate(loader):
                 data = data.to(device)
-                outs = model(data)[:, 0]
+                outs = torch.reshape(model(data), (len(data.y), 1))
+                data.y = torch.reshape(data.y, (len(data.y), 1))
                 loss = F.mse_loss(outs, data.y)
                 losses.append(float(loss.to("cpu")))
+                print(ep_id)
             return float(np.mean(losses))
 
 
@@ -156,7 +160,7 @@ if __name__ == '__main__':
             if early_stopping is True:
                 if val_mse > last_val_mse:
                     trigger_times += 1
-                    # tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(hp['patience']))
+                    tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(hp['patience']))
                     if trigger_times >= hp['patience']:
                         print(f'\nEarly stopping at epoch {epoch}!\n')
                         return
@@ -165,12 +169,12 @@ if __name__ == '__main__':
                     last_val_mse = val_mse
 
             # Report epoch stats
-            # tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
+            tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
 
             # Determine whether to save the model based on val MSE
             val_mse_list.append(val_mse)
             if val_mse <= min(val_mse_list):
-                # tqdm.write("    Saving model for epoch " + str(epoch))
+                tqdm.write("    Saving model for epoch " + str(epoch))
                 torch.save(model, model_path)
 
         # Terminate tensorboard writer
@@ -208,41 +212,74 @@ if __name__ == '__main__':
     # Apply the model to test data ---------------------------------------------------------------------------------
     test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=True, num_workers=0)
 
+    # Apply the model
     model.eval()
     for idx, data in enumerate(test_loader):
         data = data.to(device)
-    pred = model(data)[:, 0].to('cpu').detach().numpy()
-    obs = data.y.to('cpu').detach().numpy()
+        pred = torch.reshape(model(data), (len(data.y), 1)).to('cpu').detach().numpy()
+        obs = torch.reshape(data.y, (len(data.y), 1)).to('cpu').detach().numpy()
+        PlotID = data.PlotID
 
-    # Calculate R^2 and RMSE for test dataset
-    test_r2 = round(metrics.r2_score(obs, pred), 3)
-    test_rmse = round(sqrt(metrics.mean_squared_error(obs, pred)), 2)
-    print(f"\nResults for test data: \nR2: {test_r2}\nRMSE: {test_rmse}")
+    # Calculate overall R^2 and RMSE across all component estimates
+    overall_r2 = round(metrics.r2_score(obs, pred), 3)
+    overall_rmse = round(sqrt(metrics.mean_squared_error(obs, pred)), 2)
+    print(f"Overall R2: {overall_r2}\nOverall RMSE: {overall_rmse}")
 
-    # Get residuals
-    resid = obs - pred
+    # Reshape for bark, branch, foliage, wood columns
+    obs_arr = np.reshape(a=obs, newshape=(len(obs) // 4, 4))
+    pred_arr = np.reshape(a=pred, newshape=(len(obs) // 4, 4))
+    # Join arrays
+    arr = arr = np.concatenate((obs_arr, pred_arr), axis=1)
+    # Convert to data frame
+    df = pd.DataFrame(arr,
+                      columns=['bark_obs', 'branch_obs', 'foliage_obs', 'wood_obs',
+                               'bark_pred', 'branch_pred', 'foliage_pred', 'wood_pred'])
+    # Add plot IDs to df
+    df["PlotID"] = PlotID
 
-    # Plot observed vs. predicted
-    f, (ax1, ax2) = plt.subplots(2, 1)
-    ax1.scatter(obs, pred)
-    ax1.set(xlabel='Observed Biomass (Tons)', ylabel='Predicted Biomass (Tons)')
-    plt.figtext(0.1, 0.65, f"R2: {test_r2}\nRMSE: {test_rmse}",
-                horizontalalignment="center",
-                verticalalignment="center",
-                transform=ax1.transAxes)
+    # Calculate R^2 and RMSE for bark, branch, foliage, wood
 
-    # Plot residuals
-    ax2.scatter(pred, resid)
-    ax2.set(xlabel='Predicted Biomass (Tons)', ylabel='Residuals')
+    # bark
+    bark_r2 = round(metrics.r2_score(df["bark_obs"], df["bark_pred"]), 3)
+    bark_rmse = round(sqrt(metrics.mean_squared_error(df["bark_obs"], df["bark_pred"])), 2)
+    print(f"bark R2: {bark_r2}\nbark RMSE: {bark_rmse}")
 
-    # set the spacing between subplots
-    plt.subplots_adjust(left=0.1,
-                        bottom=0.1,
-                        right=0.9,
-                        top=0.9,
-                        wspace=0.4,
-                        hspace=0.5)
-    plt.show()
+    # branch
+    branch_r2 = round(metrics.r2_score(df["branch_obs"], df["branch_pred"]), 3)
+    branch_rmse = round(sqrt(metrics.mean_squared_error(df["branch_obs"], df["branch_pred"])), 2)
+    print(f"branch R2: {branch_r2}\nbranch RMSE: {branch_rmse}")
+
+    # foliage
+    foliage_r2 = round(metrics.r2_score(df["foliage_obs"], df["foliage_pred"]), 3)
+    foliage_rmse = round(sqrt(metrics.mean_squared_error(df["foliage_obs"], df["foliage_pred"])), 2)
+    print(f"foliage R2: {foliage_r2}\nfoliage RMSE: {foliage_rmse}")
+
+    # wood
+    wood_r2 = round(metrics.r2_score(df["wood_obs"], df["wood_pred"]), 3)
+    wood_rmse = round(sqrt(metrics.mean_squared_error(df["wood_obs"], df["wood_pred"])), 2)
+    print(f"wood R2: {wood_r2}\nwood RMSE: {wood_rmse}")
+
+    # Calculate R^2 and RMSE for bark, branch, foliage, wood
+
+    # bark
+    bark_r2 = round(metrics.r2_score(df["bark_obs"], df["bark_pred"]), 3)
+    bark_rmse = round(sqrt(metrics.mean_squared_error(df["bark_obs"], df["bark_pred"])), 2)
+    print(f"bark R2: {bark_r2}\nbark RMSE: {bark_rmse}")
+
+    # branch
+    branch_r2 = round(metrics.r2_score(df["branch_obs"], df["branch_pred"]), 3)
+    branch_rmse = round(sqrt(metrics.mean_squared_error(df["branch_obs"], df["branch_pred"])), 2)
+    print(f"branch R2: {branch_r2}\nbranch RMSE: {branch_rmse}")
+
+    # foliage
+    foliage_r2 = round(metrics.r2_score(df["foliage_obs"], df["foliage_pred"]), 3)
+    foliage_rmse = round(sqrt(metrics.mean_squared_error(df["foliage_obs"], df["foliage_pred"])), 2)
+    print(f"foliage R2: {foliage_r2}\nfoliage RMSE: {foliage_rmse}")
+
+    # wood
+    wood_r2 = round(metrics.r2_score(df["wood_obs"], df["wood_pred"]), 3)
+    wood_rmse = round(sqrt(metrics.mean_squared_error(df["wood_obs"], df["wood_pred"])), 2)
+    print(f"wood R2: {wood_r2}\nwood RMSE: {wood_rmse}")
 
 
 

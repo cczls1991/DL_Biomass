@@ -6,11 +6,10 @@ from pointcloud_dataloader import PointCloudsInFiles
 from matplotlib import pyplot as plt
 import sklearn.metrics as metrics
 from math import sqrt
-import numpy as np
 from pointcloud_dataloader import read_las
+import pandas as pd
 from itertools import compress
 from pathlib import Path
-import pandas as pd
 from random import sample
 
 # Apply the model to the test dataset and plot the results --------------------------------------------------
@@ -23,8 +22,8 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 #Specify model params
 use_columns = ['intensity_normalized']
-use_datasets = ["PF"]  # Possible datasets: BC, RM, PF
-num_points = 7_000
+use_datasets = ["BC"]  # Possible datasets: BC, RM, PF
+num_points = 1_000
 test_dataset_path = r'D:\Sync\Data\Model_Input\test'
 
 # Load most recent model
@@ -48,11 +47,11 @@ test_loader = DataLoader(test_dataset, batch_size=len(test_dataset), shuffle=Tru
 model.eval()
 for idx, data in enumerate(test_loader):
     data = data.to(device)
-pred = model(data)[:, 0].to('cpu').detach().numpy()
-obs = data.y.to('cpu').detach().numpy()
-PlotID = data.PlotID
+    pred = torch.reshape(model(data), (len(data.y), 1)).to('cpu').detach().numpy()
+    obs = torch.reshape(data.y, (len(data.y), 1)).to('cpu').detach().numpy()
+    PlotID = data.PlotID
 
-# Calculate R^2 and RMSE for test dataset
+# Calculate overall R^2 and RMSE across all component estimates
 test_r2 = round(metrics.r2_score(obs, pred), 3)
 test_rmse = round(sqrt(metrics.mean_squared_error(obs, pred)), 2)
 print(f"R2: {test_r2}\nRMSE: {test_rmse}")

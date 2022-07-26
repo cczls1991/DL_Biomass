@@ -199,20 +199,26 @@ class AugmentPointCloudsInFiles(InMemoryDataset):
         coords, x = random_noise(coords, len(self.use_columns), x)
         coords = rotate_points(coords)
 
-        # Load target biomass data
+        # Load biomass data
         #Get plot ID from filename
         PlotID = self.files[idx].name.split(".")[0]
         #Load biomass data
         input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
-        #Extract target value for the correct plot ID
-        target = input_table.loc[input_table["PlotID"] == PlotID]["total_AGB"].values
+        #Extract bark, branch, foliage, wood values for the correct plot ID
+        bark_agb = input_table.loc[input_table["PlotID"] == PlotID]["bark_total"].values[0]
+        branch_agb = input_table.loc[input_table["PlotID"] == PlotID]["branch_total"].values[0]
+        foliage_agb = input_table.loc[input_table["PlotID"] == PlotID]["foliage_total"].values[0]
+        wood_agb = input_table.loc[input_table["PlotID"] == PlotID]["wood_total"].values[0]
+        #Combine AGB targets into a list
+        target = [bark_agb, branch_agb, foliage_agb, wood_agb]
 
-        # Transform data to tensor
+        #Aggregate point cloud and biomass targets for the given sample
         sample = Data(
             x=torch.from_numpy(x).float(),
             y=torch.from_numpy(np.array(target)).float(),
             pos=torch.from_numpy(coords).float(),
-        )
+            PlotID=PlotID)
+
         if coords.shape[0] < 100:
             return None
         return sample
