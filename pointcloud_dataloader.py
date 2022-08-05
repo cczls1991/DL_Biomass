@@ -111,10 +111,10 @@ class PointCloudsInFiles(InMemoryDataset):
         #Load biomass data
         input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
         #Extract bark, branch, foliage, wood values for the correct plot ID
-        bark_agb = input_table.loc[input_table["PlotID"] == PlotID]["bark_total"].values[0]
-        branch_agb = input_table.loc[input_table["PlotID"] == PlotID]["branch_total"].values[0]
-        foliage_agb = input_table.loc[input_table["PlotID"] == PlotID]["foliage_total"].values[0]
-        wood_agb = input_table.loc[input_table["PlotID"] == PlotID]["wood_total"].values[0]
+        bark_agb = input_table.loc[input_table["PlotID"] == PlotID]["bark_btphr"].values[0]
+        branch_agb = input_table.loc[input_table["PlotID"] == PlotID]["branch_btphr"].values[0]
+        foliage_agb = input_table.loc[input_table["PlotID"] == PlotID]["foliage_btphr"].values[0]
+        wood_agb = input_table.loc[input_table["PlotID"] == PlotID]["wood_btphr"].values[0]
         #Combine AGB targets into a list
         target = [bark_agb, branch_agb, foliage_agb, wood_agb]
 

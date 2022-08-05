@@ -1,7 +1,8 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torch_geometric.loader import DataLoader
+from torch_geometric.loader import DataListLoader
+from torch_geometric.nn import DataParallel
 from pointnet2_regressor import Net
 from pointcloud_dataloader import PointCloudsInFiles
 from augmentation import AugmentPointCloudsInFiles
@@ -10,6 +11,10 @@ from optuna.trial import TrialState
 import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime as dt
+
+# Supress warnings
+import warnings
+warnings.filterwarnings("ignore")
 
 comment = "focusing_on_important_HPs"
 
@@ -21,11 +26,12 @@ if __name__ == '__main__':
 
     # SET UP STATIC PARAMETERS
     use_columns = ['intensity_normalized']
-    pruning = False
+    use_datasets = ["BC", "RM", "PF"]  # Possible datasets: BC, RM, PF
+    pruning = True
     early_stopping = True
     max_num_epochs = 400
     n_trials = None
-    run_time = 3600*16  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+    run_time = 3600*24*2.5  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
@@ -34,42 +40,32 @@ if __name__ == '__main__':
 
         # SET UP TUNING PARAMETERS
         cfg = {'lr': trial.suggest_float("lr", 1e-5, 1e-1, log=True),
-               'batch_size': trial.suggest_int('batch_size', low=2, high=32, step=2),
-               'weight_decay': 3.6384310505999963e-10, #trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
-               'num_augs': 8, #trial.suggest_int('num_augs', low=0, high=10, step=1),
-               'num_points': 7000, #trial.suggest_int('num_points', low=500, high=3000, step=500),
+               'batch_size': trial.suggest_int('batch_size', low=10, high=100, step=10),
+               'weight_decay': trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
+               'num_augs': trial.suggest_int('num_augs', low=0, high=10, step=1),
+               'num_points': 7_000, #trial.suggest_int('num_points', low=5000, high=10_000, step=1000),
                'neuron_multiplier': 0, #trial.suggest_int('neuron_multiplier', low=0, high=2, step=2),
-               'patience': 50, #trial.suggest_int('patience', low=5, high=50, step=5),
+               'patience': trial.suggest_int('patience', low=10, high=100, step=10),
                'ground_filter_height': 0, #trial.suggest_float("ground_filter_height", 0, 2, step=0.2),
                'activation_function': 'ReLU', #trial.suggest_categorical('activation_function', ['ReLU', 'LeakyReLU', 'ELU']),
                'optimizer': "Adam", #trial.suggest_categorical('optimizer', ["Adam", "AdamW"]),
-               'dropout_probability': 0.55, #trial.suggest_float("dropout_probability", 0.4, 0.8, step=0.05)
+               'dropout_probability': 0.5, #trial.suggest_float("dropout_probability", 0.4, 0.8, step=0.05)
                # 'lidar_attrs': trial.suggest_categorical('lidar_attrs', ['intensity_normalized', 'classification', 'return_num'])
                }
 
-
-        #Specify input lidar attributes
-        #if cfg['lidar_attrs'] == 'classification':
-            #use_columns = ['classification']
-        #elif cfg['lidar_attrs'] == 'return_num':
-            #use_columns = ['return_num']
-        #else:
-            #use_columns = ['intensity_normalized']
-
-        #Set model hyperparameters
+        # Set model
         model = Net(num_features=len(use_columns),
                     activation_function=cfg['activation_function'],
                     neuron_multiplier=cfg['neuron_multiplier'],
                     dropout_probability=cfg['dropout_probability']
-                    ).to(device)
+                    )
 
-        # Get training and val datasets
-        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns, filter_height=cfg['ground_filter_height'])
-        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns, filter_height=cfg['ground_filter_height'])
+        # Get training val, and test datasets
+        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns,
+                                           filter_height=cfg['ground_filter_height'], dataset=use_datasets)
+        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns,
+                                         filter_height=cfg['ground_filter_height'], dataset=use_datasets)
 
-        # Set up pytorch training and validation loaders
-        train_loader = DataLoader(train_dataset, batch_size=cfg['batch_size'], shuffle=True, num_workers=0)
-        val_loader = DataLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=True, num_workers=0)
         # Augment training data
         if cfg['num_augs'] > 0:
             for i in range(cfg['num_augs']):
@@ -77,18 +73,30 @@ if __name__ == '__main__':
                     train_dataset_path,
                     "*.las",
                     max_points=cfg['num_points'],
-                    use_columns=use_columns
+                    use_columns=use_columns,
+                    filter_height=cfg['ground_filter_height'],
+                    dataset=use_datasets
                 )
 
                 # Concat training and augmented training datasets
                 train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
+            print(
+                f"Adding {cfg['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
+
+        # Set up dataset loaders
+        train_loader = DataListLoader(train_dataset, batch_size=cfg['batch_size'], shuffle=True)
+        val_loader = DataListLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=True)
+
+        model = DataParallel(model)
+        device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        model = model.to(device)
 
         # Set optimizer
         if cfg['optimizer'] == "Adam":
             optimizer = torch.optim.Adam(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
         else:
             optimizer = torch.optim.AdamW(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
-
+    
         #Add trigger_times, last val MSE value, and val mse list for early stopping process
         trigger_times = 0
         last_val_mse = np.inf
@@ -99,11 +107,11 @@ if __name__ == '__main__':
             # Set training loop
             model.train()
             loss_list = []
-            for i, data in enumerate(train_loader):
-                data = data.to(device)
+            for i, data_list in enumerate(train_loader):
                 optimizer.zero_grad()
-                out = model(data)[:, 0]
-                loss = F.mse_loss(out, data.y)
+                outs = torch.reshape(model(data_list), (len(data_list) * 4, 1))
+                y = torch.reshape(torch.cat([data.y for data in data_list]).to(outs.device), (len(data_list) * 4, 1))
+                loss = F.mse_loss(outs, y)
                 loss.backward()
                 optimizer.step()
                 if (i + 1) % 1 == 0:
@@ -113,10 +121,10 @@ if __name__ == '__main__':
             with torch.no_grad():
                 model.eval()
                 losses = []
-                for idx, data in enumerate(val_loader):
-                    data = data.to(device)
-                    outs = model(data)[:, 0]
-                    loss = F.mse_loss(outs, data.y)
+                for idx, data_list in enumerate(val_loader):
+                    outs = torch.reshape(model(data_list), (len(data_list) * 4, 1))
+                    y = torch.reshape(torch.cat([data.y for data in data_list]).to(outs.device), (len(data_list) * 4, 1))
+                    loss = F.mse_loss(outs, y)
                     losses.append(float(loss.to("cpu")))
                 val_mse = float(np.mean(losses))
 
@@ -146,8 +154,10 @@ if __name__ == '__main__':
 
 
     # Begin hyperparameter tuning trials ------------------------------------------------------------
+    print(f"Using {torch.cuda.device_count()} GPUs!")
     print("Begining tuning for", comment)
-    study = optuna.create_study(direction="minimize")
+    sampler = optuna.samplers.TPESampler()  # Make the sampler behave in a deterministic way.
+    study = optuna.create_study(direction="minimize", sampler=sampler)
     study.optimize(objective, n_trials=n_trials, timeout=run_time, show_progress_bar=True)
 
     pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
