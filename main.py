@@ -49,58 +49,59 @@ if __name__ == '__main__':
     print(f"Early stopping: {early_stopping}")
     print(f"Max number of epochs: {num_epochs}")
 
-    # Specify hyperparameter tunings
-    hp = {'lr': 0.001023944267649541,
-          'weight_decay': 8.0250963438986e-05,
-          'batch_size': 32,
-          'num_augs': 0,
-          'patience': 28,
-          'ground_filter_height': 0,
-          'activation_function': "ReLU",
-          'optimizer': "Adam",
-          'neuron_multiplier': 0,
-          'dropout_probability': 0.5
-          }
+    # SET UP TUNING PARAMETERS
+    cfg = {'lr': 0.026726850890033942,
+           'batch_size': 60,
+           'weight_decay': 3.2540888065641056e-10,
+           'num_augs': 8,
+           'num_points': 7_000,
+           'neuron_multiplier': 0,
+           'patience': 30,
+           'ground_filter_height': 0,
+           'activation_function': 'ReLU',
+           'optimizer': "Adam",
+           'dropout_probability': 0.5,
+           }
 
     print("\nHyperparameters:\n")
-    pp.pprint(hp, width=1)
+    pp.pprint(cfg, width=1)
 
     # Set model
     model = Net(num_features=len(use_columns),
-                activation_function=hp['activation_function'],
-                neuron_multiplier=hp['neuron_multiplier'],
-                dropout_probability=hp['dropout_probability']
+                activation_function=cfg['activation_function'],
+                neuron_multiplier=cfg['neuron_multiplier'],
+                dropout_probability=cfg['dropout_probability']
                 )
 
     # Get training val, and test datasets
     train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                       filter_height=hp['ground_filter_height'], dataset=use_datasets)
+                                       filter_height=cfg['ground_filter_height'], dataset=use_datasets)
     val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                     filter_height=hp['ground_filter_height'], dataset=use_datasets)
+                                     filter_height=cfg['ground_filter_height'], dataset=use_datasets)
     test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                      filter_height=hp['ground_filter_height'], dataset=use_datasets)
+                                      filter_height=cfg['ground_filter_height'], dataset=use_datasets)
 
     # Augment training data
-    if hp['num_augs'] > 0:
-        for i in range(hp['num_augs']):
+    if cfg['num_augs'] > 0:
+        for i in range(cfg['num_augs']):
             aug_trainset = AugmentPointCloudsInFiles(
                 train_dataset_path,
                 "*.las",
                 max_points=num_points,
                 use_columns=use_columns,
-                filter_height=hp['ground_filter_height'],
+                filter_height=cfg['ground_filter_height'],
                 dataset=use_datasets
             )
 
             # Concat training and augmented training datasets
             train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
         print(
-            f"Adding {hp['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
+            f"Adding {cfg['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
 
 
     # Set up dataset loaders
-    train_loader = DataListLoader(train_dataset, batch_size=hp['batch_size'], shuffle=True)
-    val_loader = DataListLoader(val_dataset, batch_size=hp['batch_size'], shuffle=True)
+    train_loader = DataListLoader(train_dataset, batch_size=cfg['batch_size'], shuffle=True)
+    val_loader = DataListLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=True)
     test_loader = DataListLoader(test_dataset, batch_size=len(test_dataset), shuffle=False, num_workers=0)
 
     print(f"Using {torch.cuda.device_count()} GPUs!")
@@ -109,10 +110,20 @@ if __name__ == '__main__':
     model = model.to(device)
 
     # Set optimizer
-    if hp['optimizer'] == "Adam":
-        optimizer = torch.optim.Adam(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
+    if cfg['optimizer'] == "Adam":
+        optimizer = torch.optim.Adam(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
     else:
-        optimizer = torch.optim.AdamW(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
+        optimizer = torch.optim.AdamW(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
+
+    #Set learning rate scheduler (Source: https://debuggercafe.com/using-learning-rate-scheduler-and-early-stopping-with-pytorch/)
+    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                mode='min',
+                patience=10,  # Number of epochs with no improvement after which learning rate will be reduced.
+                factor=0.1,  # Factor by which the learning rate will be reduced. new_lr = lr * factor
+                cooldown=0,  # Number of epochs to wait before resuming normal operation after lr has been reduced
+                min_lr=0  # A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively
+    )
 
     # Define training function
     def train():
@@ -155,6 +166,7 @@ if __name__ == '__main__':
         for epoch in tqdm(range(0, num_epochs), colour="green", position=0, leave=True):
             train_mse = train()
             val_mse = val(val_loader, epoch)
+            lr_scheduler.step(val_mse)
 
             # Record epoch results
             with open(model_path.replace('.model', '.csv'), 'a') as f:
@@ -166,8 +178,8 @@ if __name__ == '__main__':
             if early_stopping is True:
                 if val_mse > last_val_mse:
                     trigger_times += 1
-                    tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(hp['patience']))
-                    if trigger_times >= hp['patience']:
+                    tqdm.write("    Early stopping trigger " + str(trigger_times) + " out of " + str(cfg['patience']))
+                    if trigger_times >= cfg['patience']:
                         print(f'\nEarly stopping at epoch {epoch}!\n')
                         return
                 else:

@@ -1,3 +1,4 @@
+import os
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -11,27 +12,29 @@ from optuna.trial import TrialState
 import matplotlib.pyplot as plt
 import pandas as pd
 from datetime import datetime as dt
+import joblib
+import glob
 
 # Supress warnings
 import warnings
 warnings.filterwarnings("ignore")
 
-comment = "focusing_on_important_HPs"
-
 if __name__ == '__main__':
 
-    # Specify cuda as device
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"Using {device} device.")
+    # Set note for this optuna study
+    comment = "multi_output"
 
-    # SET UP STATIC PARAMETERS
+    #Set optuna study parameters
+    pruning = True  #Should optuna prune trials that are going badly?
+    continue_study = False   #Specify whether or not to continue previous study
+    n_trials = None   #Number of trials to run, takes priority over run time
+    run_time = 3600 * 24  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+
+    # SET UP MODEL PARAMETERS
     use_columns = ['intensity_normalized']
     use_datasets = ["BC", "RM", "PF"]  # Possible datasets: BC, RM, PF
-    pruning = True
     early_stopping = True
     max_num_epochs = 400
-    n_trials = None
-    run_time = 3600*24*2.5  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
 
@@ -50,7 +53,6 @@ if __name__ == '__main__':
                'activation_function': 'ReLU', #trial.suggest_categorical('activation_function', ['ReLU', 'LeakyReLU', 'ELU']),
                'optimizer': "Adam", #trial.suggest_categorical('optimizer', ["Adam", "AdamW"]),
                'dropout_probability': 0.5, #trial.suggest_float("dropout_probability", 0.4, 0.8, step=0.05)
-               # 'lidar_attrs': trial.suggest_categorical('lidar_attrs', ['intensity_normalized', 'classification', 'return_num'])
                }
 
         # Set model
@@ -87,6 +89,7 @@ if __name__ == '__main__':
         train_loader = DataListLoader(train_dataset, batch_size=cfg['batch_size'], shuffle=True)
         val_loader = DataListLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=True)
 
+        #Initiate parallel processing
         model = DataParallel(model)
         device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         model = model.to(device)
@@ -153,46 +156,125 @@ if __name__ == '__main__':
         return min(val_mse_list)
 
 
-    # Begin hyperparameter tuning trials ------------------------------------------------------------
-    print(f"Using {torch.cuda.device_count()} GPUs!")
-    print("Begining tuning for", comment)
-    sampler = optuna.samplers.TPESampler()  # Make the sampler behave in a deterministic way.
-    study = optuna.create_study(direction="minimize", sampler=sampler)
-    study.optimize(objective, n_trials=n_trials, timeout=run_time, show_progress_bar=True)
+    # HP TUNING SECTION ------------------------------------------------------------
 
-    pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
-    complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+    #If there is a previous study, and we specified to continue it, load  most recent study file
+    if continue_study is True:
+        # Check that there are files in the studies folder
+        folder_path = r"E:\Optuna_Studies"
+        file_type = r'\*.pkl'
+        files = glob.glob(folder_path + file_type)
+        if len(files) > 0:
+            study_file = max(files, key=os.path.getctime)
+            study = joblib.load(study_file)
+            print(f"\nContinuing study: {study_file}\n")
+            print("Best trial until now:")
+            print(" Value: ", study.best_trial.value)
+            print(" Params: ")
+            for key, value in study.best_trial.params.items():
+                print(f"    {key}: {value}")
+            print(f"\nUsing {torch.cuda.device_count()} GPUs!")
+            print(f"\nBegining tuning for ~{comment}~ study \n")
+            study.optimize(objective, n_trials=n_trials, timeout=run_time, show_progress_bar=True)
+            # Get current time and date
+            t_now = dt.now().strftime("%Y_%m_%d_%H_%M_%S")
 
-    print("Study statistics: ")
-    print("  Number of finished trials: ", len(study.trials))
-    print("  Number of pruned trials: ", len(pruned_trials))
-    print("  Number of complete trials: ", len(complete_trials))
+            # Save the study to resume later
+            joblib.dump(study, fr"E:\Optuna_Studies\hp_study_{comment}_{t_now}.pkl")
 
-    print("Best trial:")
-    best_trial = study.best_trial
+            pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+            complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
 
-    print("  Value: ", best_trial.value)
+            print("Study statistics: ")
+            print("  Number of finished trials: ", len(study.trials))
+            print("  Number of pruned trials: ", len(pruned_trials))
+            print("  Number of complete trials: ", len(complete_trials))
 
-    print("  Params: ")
-    for key, value in best_trial.params.items():
-        print("    {}: {}".format(key, value))
+            print("Best trial:")
+            best_trial = study.best_trial
 
-    print("Run time:", run_time/3600, "hours")
+            print("  Value: ", best_trial.value)
 
-    # Visualize parameter importance ------------------------------------------------------------
-    param_importance = optuna.importance.get_param_importances(study)
-    names = list(param_importance.keys())
-    values = list(param_importance.values())
-    plt.bar(range(len(param_importance)), values, tick_label=names)
-    plt.xlabel("Parameter")
-    plt.ylabel("Importance Score")
-    plt.title("Optuna Variable Importance")
-    plt.show()
+            print("  Params: ")
+            for key, value in best_trial.params.items():
+                print("    {}: {}".format(key, value))
 
-    # Convert hyperparameter tuning results to df and export as excel file  ------------------------------------------------------------
-    df = study.trials_dataframe()
-    assert isinstance(df, pd.DataFrame)
-    t_now = dt.now().strftime("%Y_%m_%d_%H_%M_%S")
-    #Remove column suffixes
-    df.columns = df.columns.str.replace("params_", "")
-    df.to_csv(rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}_Hyperparameter_tuning_results_{t_now}_.csv")
+            print("Run time:", run_time / 3600, "hours")
+
+            # Visualize parameter importance ------------------------------------------------------------
+            param_importance = optuna.importance.get_param_importances(study)
+            names = list(param_importance.keys())
+            values = list(param_importance.values())
+            plt.bar(range(len(param_importance)), values, tick_label=names)
+            plt.xlabel("Parameter")
+            plt.ylabel("Importance Score")
+            plt.title("Optuna Variable Importance")
+            plt.show()
+
+            # Save plot
+            plt.savefig(rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}hp_tuning{t_now}")
+
+            # Convert hyperparameter tuning results to df and export as excel file  ------------------------------------------------------------
+            df = study.trials_dataframe()
+            assert isinstance(df, pd.DataFrame)
+            # Remove column suffixes
+            df.columns = df.columns.str.replace("params_", "")
+            df.to_csv(
+                rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}_Hyperparameter_tuning_results_{t_now}_.csv")
+
+        else:
+            print("\n* No previous studies to continue *")
+
+    #If we are creating a new study -------------------------------------------------------------
+    else:
+        print("\nCreating new study.\n")
+        print(f"\nUsing {torch.cuda.device_count()} GPUs!\n")
+        print("\nBegining tuning for\n", comment)
+        sampler = optuna.samplers.TPESampler()
+        study = optuna.create_study(direction="minimize", sampler=sampler)
+        study.optimize(objective, n_trials=n_trials, timeout=run_time, show_progress_bar=True)
+
+        #Get current time and date
+        t_now = dt.now().strftime("%Y_%m_%d_%H_%M_%S")
+
+        #Save the study to resume later
+        joblib.dump(study, fr"E:\Optuna_Studies\hp_study_{comment}_{t_now}.pkl")
+
+        pruned_trials = study.get_trials(deepcopy=False, states=[TrialState.PRUNED])
+        complete_trials = study.get_trials(deepcopy=False, states=[TrialState.COMPLETE])
+
+        print("Study statistics: ")
+        print("  Number of finished trials: ", len(study.trials))
+        print("  Number of pruned trials: ", len(pruned_trials))
+        print("  Number of complete trials: ", len(complete_trials))
+
+        print("Best trial:")
+        best_trial = study.best_trial
+
+        print("  Value: ", best_trial.value)
+
+        print("  Params: ")
+        for key, value in best_trial.params.items():
+            print("    {}: {}".format(key, value))
+
+        print("Run time:", run_time/3600, "hours")
+
+        # Visualize parameter importance ------------------------------------------------------------
+        param_importance = optuna.importance.get_param_importances(study)
+        names = list(param_importance.keys())
+        values = list(param_importance.values())
+        plt.bar(range(len(param_importance)), values, tick_label=names)
+        plt.xlabel("Parameter")
+        plt.ylabel("Importance Score")
+        plt.title("Optuna Variable Importance")
+        plt.show()
+
+        # Save plot
+        plt.savefig(rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}hp_tuning{t_now}")
+
+        # Convert hyperparameter tuning results to df and export as excel file  ------------------------------------------------------------
+        df = study.trials_dataframe()
+        assert isinstance(df, pd.DataFrame)
+        #Remove column suffixes
+        df.columns = df.columns.str.replace("params_", "")
+        df.to_csv(rf"D:\Sync\DL_Development\Hyperparameter_Tuning\{comment}_Hyperparameter_tuning_results_{t_now}_.csv")
