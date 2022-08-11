@@ -27,27 +27,22 @@ from pointcloud_dataloader import read_las
 import warnings
 warnings.filterwarnings("ignore")
 
+#Add comment for this run
+comment = "multi_gpu"
+
 if __name__ == '__main__':
 
     # SETUP STATIC HYPERPARAMETERS
     model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M_%S")}.model'
     use_columns = ['intensity_normalized']
-    use_datasets = ["BC", "RM", "PF"]  # Possible datasets: BC, RM, PF
-    num_points = 2000
+    use_datasets = ["BC"]  # Possible datasets: BC, RM, PF
     early_stopping = True
-    num_epochs = 40
+    num_epochs = 400
     point_cloud_vis = False
     fig_out_dir = r"D:\Sync\Figures\Testing_Model_Output_Plots" # Set out directory to save plots
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
     test_dataset_path = r'D:\Sync\Data\Model_Input\test'
-
-    # Report additional hyperparameters
-    print(f"Dataset(s): {use_datasets}")
-    print(f"Additional features used: {use_columns}")
-    print(f"Using {num_points} points per plot")
-    print(f"Early stopping: {early_stopping}")
-    print(f"Max number of epochs: {num_epochs}")
 
     # SET UP TUNING PARAMETERS
     cfg = {'lr': 0.026726850890033942,
@@ -56,12 +51,20 @@ if __name__ == '__main__':
            'num_augs': 8,
            'num_points': 7_000,
            'neuron_multiplier': 0,
-           'patience': 30,
+           'patience': 20,
            'ground_filter_height': 0,
            'activation_function': 'ReLU',
            'optimizer': "Adam",
-           'dropout_probability': 0.5,
+           'lr_scheduler': False,
+           'dropout_probability': 0.5
            }
+
+    # Report additional hyperparameters
+    print(f"Dataset(s): {use_datasets}")
+    print(f"Additional features used: {use_columns}")
+    print(f"Using {cfg['num_points']} points per plot")
+    print(f"Early stopping: {early_stopping}")
+    print(f"Max number of epochs: {num_epochs}")
 
     print("\nHyperparameters:\n")
     pp.pprint(cfg, width=1)
@@ -74,11 +77,11 @@ if __name__ == '__main__':
                 )
 
     # Get training val, and test datasets
-    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns,
                                        filter_height=cfg['ground_filter_height'], dataset=use_datasets)
-    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns,
                                      filter_height=cfg['ground_filter_height'], dataset=use_datasets)
-    test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+    test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=cfg['num_points'], use_columns=use_columns,
                                       filter_height=cfg['ground_filter_height'], dataset=use_datasets)
 
     # Augment training data
@@ -87,7 +90,7 @@ if __name__ == '__main__':
             aug_trainset = AugmentPointCloudsInFiles(
                 train_dataset_path,
                 "*.las",
-                max_points=num_points,
+                max_points=cfg['num_points'],
                 use_columns=use_columns,
                 filter_height=cfg['ground_filter_height'],
                 dataset=use_datasets
@@ -115,15 +118,16 @@ if __name__ == '__main__':
     else:
         optimizer = torch.optim.AdamW(model.parameters(), lr=cfg['lr'], weight_decay=cfg['weight_decay'])
 
-    #Set learning rate scheduler (Source: https://debuggercafe.com/using-learning-rate-scheduler-and-early-stopping-with-pytorch/)
-    lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-                optimizer,
-                mode='min',
-                patience=10,  # Number of epochs with no improvement after which learning rate will be reduced.
-                factor=0.1,  # Factor by which the learning rate will be reduced. new_lr = lr * factor
-                cooldown=0,  # Number of epochs to wait before resuming normal operation after lr has been reduced
-                min_lr=0  # A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively
-    )
+    if cfg['lr_scheduler'] is True:
+        #Set learning rate scheduler (Source: https://debuggercafe.com/using-learning-rate-scheduler-and-early-stopping-with-pytorch/)
+        lr_scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+                    optimizer,
+                    mode='min',
+                    patience=10,  # Number of epochs with no improvement after which learning rate will be reduced.
+                    factor=0.1,  # Factor by which the learning rate will be reduced. new_lr = lr * factor
+                    cooldown=0,  # Number of epochs to wait before resuming normal operation after lr has been reduced
+                    min_lr=0  # A scalar or a list of scalars. A lower bound on the learning rate of all param groups or each group respectively
+        )
 
     # Define training function
     def train():
@@ -166,7 +170,8 @@ if __name__ == '__main__':
         for epoch in tqdm(range(0, num_epochs), colour="green", position=0, leave=True):
             train_mse = train()
             val_mse = val(val_loader, epoch)
-            lr_scheduler.step(val_mse)
+            if cfg['lr_scheduler'] is True:
+                lr_scheduler.step(val_mse)
 
             # Record epoch results
             with open(model_path.replace('.model', '.csv'), 'a') as f:
@@ -214,7 +219,10 @@ if __name__ == '__main__':
     training_results = pd.read_csv(training_results, sep=",", header=None)
     training_results.columns = ['epoch', 'train_mse', 'val_mse']
 
-    # Plot the change in training and validation mse over time
+    #Get current date and time for saving figures
+    t_now = dt.now().strftime("%Y_%m_%d_%H_%M")
+
+    # Plot the change in training and validation mse over time (learning curve)
     fig, ax = plt.subplots()
     ax.plot(training_results["epoch"], training_results["train_mse"], color="blue", marker="o")
     ax.set_xlabel("Epoch")
@@ -223,6 +231,8 @@ if __name__ == '__main__':
     red_patch = mpatches.Patch(color='red', label='Validation')
     blue_patch = mpatches.Patch(color='blue', label='Training')
     plt.legend(handles=[red_patch, blue_patch])
+
+    plt.savefig(fr'D:\Sync\Figures\Learning_Curves\Learning_Curve_{t_now}_{comment}.png')
 
     # Apply the model to test data --------------------------------------------------------------------------
 
@@ -315,7 +325,7 @@ if __name__ == '__main__':
     plt.show()
 
     # Save plot
-    plt.savefig(os.path.join(fig_out_dir, 'tree_btphr_obs_vs_pred.png'))
+    plt.savefig(os.path.join(fig_out_dir, f'tree_btphr_obs_vs_pred_{t_now}_{comment}.png'))
 
     # Make plot for total AGB residuals ------------------------------------------------------------------------------------
     fig = plt.figure(figsize=(10, 10))
@@ -335,10 +345,8 @@ if __name__ == '__main__':
     # Set axis so its scaled properly
     plt.axis('scaled')
 
-    plt.show()
-
     # Save plot
-    plt.savefig(os.path.join(fig_out_dir, 'tree_btphr_residuals.png'))
+    plt.savefig(os.path.join(fig_out_dir, f'tree_btphr_residuals{t_now}_{comment}.png'))
 
     # Plot biomass component obs. vs. predicted   -----------------------------------------------
     fig, ax = plt.subplots(2, 2, figsize=(10, 10))
@@ -390,10 +398,8 @@ if __name__ == '__main__':
                         wspace=0.3,
                         hspace=0.3)
 
-    plt.show()
-
     # Save plot
-    plt.savefig(os.path.join(fig_out_dir, 'component_obs_vs_pred.png'))
+    plt.savefig(os.path.join(fig_out_dir, f'component_obs_vs_pred_{t_now}_{comment}.png'))
 
     # Make plot for component biomass residuals ------------------------------------------------------------------------------------
     fig, ax = plt.subplots(2, 2, figsize=(10, 10))
@@ -425,10 +431,8 @@ if __name__ == '__main__':
                         wspace=0.3,
                         hspace=0.3)
 
-    plt.show()
-
     # Save plot
-    plt.savefig(os.path.join(fig_out_dir, 'component_residuals.png'))
+    plt.savefig(os.path.join(fig_out_dir, f'component_residuals_{t_now}_{comment}.png'))
 
     # Visualize point clouds of four random plots with estimated and observed biomass provided  ---------------------------------------------------------------------------------
 

@@ -8,7 +8,7 @@ from itertools import compress
 
 
 
-def read_las(pointcloudfile, get_attributes=False, useevery=1, filter_height=0):
+def read_las(pointcloudfile, get_attributes=False, useevery=1, filter_height=0.2):
     '''
     :param pointcloudfile: specification of input file (format: las or laz)
     :param get_attributes: if True, will return all attributes in file, otherwise will only return XYZ (default is False)
