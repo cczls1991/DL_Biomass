@@ -6,6 +6,7 @@ import numpy as np
 import pandas as pd
 from itertools import compress
 
+#NOTE: PointCloudsInFilesPreSampled only works if you are using normalized intensity as the use_column attribute.
 
 
 def read_las(pointcloudfile, get_attributes=False, useevery=1, filter_height=0.2):
@@ -36,6 +37,7 @@ def read_las(pointcloudfile, get_attributes=False, useevery=1, filter_height=0.2
         for las_field in las_fields[3:]: # skip the X,Y,Z fields
             attributes[las_field] = inFile.points[las_field][::useevery]
         return (coords, attributes)
+
 
 def normalize_intensity(intensity_vals):
     i_norm = ((intensity_vals - min(intensity_vals)) / (max(intensity_vals) - min(intensity_vals)))*20 #Multiply by 20 so that intensity vals take on similar range to biomass vals
@@ -122,6 +124,88 @@ class PointCloudsInFiles(InMemoryDataset):
         sample = Data(x=torch.from_numpy(x).float(),
                       y=torch.from_numpy(np.array(target)).float(),
                       pos=torch.from_numpy(coords[use_idx, :]).float(),
+                      PlotID=PlotID)
+
+        if coords.shape[0] < 100:
+            return None
+        return sample
+
+
+class PointCloudsInFilesPreSampled(InMemoryDataset):
+    """Point cloud dataset where one data point is a file."""
+
+    def __init__(self, root_dir, glob='*', dataset=("RM", "PF", "BC"), use_column="intensity_normalized"):
+
+        """
+        Args:
+            root_dir (string): Directory with the datasets
+            glob (string): Glob string passed to pathlib.Path.glob
+            dataset (list[string]): dataset(s) which will be used in training and validation
+            use_column: lidar attribute to use as additional predictor variable
+        """
+
+        #List files
+        self.files = list(Path(root_dir).glob(glob))
+        #Get dataset source for each LAS file
+        dataset_ID = []
+        for i in range(0, len(self.files), 1):
+            dataset_ID.append(self.files[i].name.split(".")[0][0:2])
+        #Convert to pandas series
+        dataset_ID = pd.Series(dataset_ID, dtype=str)
+        #Determine whether or not to keep each file based on dataset ID
+        dataset_filter = dataset_ID.isin(dataset).tolist()
+        #Filter files to target dataset(s)
+        self.files = list(compress(self.files, dataset_filter))
+
+        #Add use column
+        self.use_columns = use_column
+
+        super().__init__()
+
+    def __len__(self):
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        filename = str(self.files[idx])
+        coords, attrs = read_las(filename, get_attributes=True, filter_height=0)
+
+        #Get num points from las
+        num_points = len(coords)
+
+        #Select target variable (use_column) from attributes dictionary
+        x = np.empty((num_points, 1), np.float32)
+        for entry in enumerate(attrs):
+            x = attrs[entry]
+
+
+
+        # Load biomass data -------------
+
+        #Get plot ID from filename
+        PlotID = self.files[idx].name.split(".")[0].split("_")[0]
+        #Load biomass data
+        input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
+        #Extract bark, branch, foliage, wood values for the correct plot ID
+        bark_agb = input_table.loc[input_table["PlotID"] == PlotID]["bark_btphr"].values[0]
+        branch_agb = input_table.loc[input_table["PlotID"] == PlotID]["branch_btphr"].values[0]
+        foliage_agb = input_table.loc[input_table["PlotID"] == PlotID]["foliage_btphr"].values[0]
+        wood_agb = input_table.loc[input_table["PlotID"] == PlotID]["wood_btphr"].values[0]
+        #Combine AGB targets into a list
+        target = [bark_agb, branch_agb, foliage_agb, wood_agb]
+
+        #Subset attributes dict to use column
+
+
+        #Convert attributes from dict to np array
+
+
+        #Aggregate point cloud and biomass targets for the given sample
+        sample = Data(x=torch.from_numpy(x).float(),
+                      y=torch.from_numpy(np.array(target)).float(),
+                      pos=torch.from_numpy(coords).float(),
                       PlotID=PlotID)
 
         if coords.shape[0] < 100:

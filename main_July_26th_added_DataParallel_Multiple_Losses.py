@@ -4,6 +4,7 @@ import torch.nn.functional as F
 from torch_geometric.loader import DataListLoader
 from pointnet2_regressor import Net
 from pointcloud_dataloader import PointCloudsInFiles
+from pointcloud_dataloader import PointCloudsInFilesPreSampled
 from augmentation import AugmentPointCloudsInFiles
 from datetime import datetime as dt
 from torch_geometric.nn import DataParallel
@@ -29,6 +30,7 @@ if __name__ == '__main__':
     num_points = 7_000
     early_stopping = True
     num_epochs = 100
+    use_resampled = False
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
     test_dataset_path = r'D:\Sync\Data\Model_Input\test'
@@ -44,7 +46,7 @@ if __name__ == '__main__':
     hp = {'lr': 0.0005753187813135093,
           'weight_decay': 8.0250963438986e-05,
           'batch_size': 28,
-          'num_augs': 7,
+          'num_augs': 0,
           'patience': 5,
           'ground_filter_height': 0.2,
           'activation_function': "ReLU",
@@ -68,13 +70,18 @@ if __name__ == '__main__':
     # Set optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
-    # Get training val, and test datasets
-    train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                       filter_height=hp['ground_filter_height'], dataset=use_datasets)
-    val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                     filter_height=hp['ground_filter_height'], dataset=use_datasets)
-    test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points,
-                                      use_columns=use_columns, filter_height=0.2, dataset=use_datasets)
+    if use_resampled == True:
+        train_dataset = PointCloudsInFilesPreSampled(r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points" ,
+                                                     '*.las', dataset=use_datasets, use_column="intensity_normalized")
+        val_dataset = PointCloudsInFilesPreSampled(val_dataset_path, '*.las', dataset=use_datasets)
+        test_dataset = PointCloudsInFilesPreSampled(test_dataset_path, '*.las', dataset=use_datasets)
+    else:
+        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+                                           filter_height=hp['ground_filter_height'], dataset=use_datasets)
+        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+                                         filter_height=hp['ground_filter_height'], dataset=use_datasets)
+        test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points,
+                                          use_columns=use_columns, filter_height=0.2, dataset=use_datasets)
 
     # Augment training data
     if hp['num_augs'] > 0:
