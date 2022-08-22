@@ -158,7 +158,7 @@ class PointCloudsInFilesPreSampled(InMemoryDataset):
         self.files = list(compress(self.files, dataset_filter))
 
         #Add use column
-        self.use_columns = use_column
+        self.use_column = use_column
 
         super().__init__()
 
@@ -172,20 +172,17 @@ class PointCloudsInFilesPreSampled(InMemoryDataset):
         filename = str(self.files[idx])
         coords, attrs = read_las(filename, get_attributes=True, filter_height=0)
 
-        #Get num points from las
-        num_points = len(coords)
-
         #Select target variable (use_column) from attributes dictionary
-        x = np.empty((num_points, 1), np.float32)
-        for entry in enumerate(attrs):
-            x = attrs[entry]
-
-
+        attrs = {key: attrs[key] for key in [self.use_column]}
+        x = np.array(list(attrs.items())[0][1])
+        x = np.reshape(x, [len(coords), 1])
 
         # Load biomass data -------------
 
         #Get plot ID from filename
-        PlotID = self.files[idx].name.split(".")[0].split("_")[0]
+        PlotID = self.files[idx].name.split(".")[0]
+        PlotID = PlotID.replace('_fps_3072', '') #Remove unwanted part of filename
+
         #Load biomass data
         input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
         #Extract bark, branch, foliage, wood values for the correct plot ID
@@ -195,12 +192,6 @@ class PointCloudsInFilesPreSampled(InMemoryDataset):
         wood_agb = input_table.loc[input_table["PlotID"] == PlotID]["wood_btphr"].values[0]
         #Combine AGB targets into a list
         target = [bark_agb, branch_agb, foliage_agb, wood_agb]
-
-        #Subset attributes dict to use column
-
-
-        #Convert attributes from dict to np array
-
 
         #Aggregate point cloud and biomass targets for the given sample
         sample = Data(x=torch.from_numpy(x).float(),

@@ -126,7 +126,7 @@ class AugmentPointCloudsInFiles(InMemoryDataset):
     """Point cloud dataset where one data point is a file."""
 
     def __init__(
-            self, root_dir, glob="*", max_points=200_000, use_columns=None, filter_height=1.3, dataset = ["RM", "PF"]
+            self, root_dir, glob="*", max_points=200_000, use_columns=None, filter_height=1.3, dataset = ("RM", "PF", "BC")
     ):
         """
         Args:

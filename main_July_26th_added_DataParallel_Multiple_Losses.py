@@ -26,25 +26,18 @@ if __name__ == '__main__':
     # SETUP STATIC HYPERPARAMETERS
     model_path = rf'D:\Sync\DL_Development\Models\DL_model_{dt.now().strftime("%Y_%m_%d_%H_%M")}.model'
     use_columns = ['intensity_normalized']
-    use_datasets = ["BC"]  # Possible datasets: BC, RM, PF
-    num_points = 7_000
+    use_datasets = ["PF"]  # Possible datasets: BC, RM, PF
     early_stopping = True
     num_epochs = 100
-    use_resampled = False
+    use_presampled = True
     train_dataset_path = r'D:\Sync\Data\Model_Input\train'
     val_dataset_path = r'D:\Sync\Data\Model_Input\val'
     test_dataset_path = r'D:\Sync\Data\Model_Input\test'
 
-    # Report additional hyperparameters
-    print(f"Dataset(s): {use_datasets}")
-    print(f"Additional features used: {use_columns}")
-    print(f"Using {num_points} points per plot")
-    print(f"Early stopping: {early_stopping}")
-    print(f"Max number of epochs: {num_epochs}")
-
     # Specify hyperparameter tunings
     hp = {'lr': 0.0005753187813135093,
           'weight_decay': 8.0250963438986e-05,
+          'num_points': 7000, #But currently using 3702 resampled points,
           'batch_size': 28,
           'num_augs': 0,
           'patience': 5,
@@ -53,6 +46,13 @@ if __name__ == '__main__':
           'neuron_multiplier': 0,
           'dropout_probability': 0.55
           }
+
+    # Report additional hyperparameters
+    print(f"Dataset(s): {use_datasets}")
+    print(f"Additional features used: {use_columns}")
+    print(f"Using {hp['num_points']} points per plot")
+    print(f"Early stopping: {early_stopping}")
+    print(f"Max number of epochs: {num_epochs}")
 
     print("\nHyperparameters:\n")
     pp.pprint(hp, width=1)
@@ -70,17 +70,20 @@ if __name__ == '__main__':
     # Set optimizer
     optimizer = torch.optim.Adam(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
-    if use_resampled == True:
-        train_dataset = PointCloudsInFilesPreSampled(r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points" ,
+    if use_presampled == True:
+        train_dataset = PointCloudsInFilesPreSampled(r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points_train",
                                                      '*.las', dataset=use_datasets, use_column="intensity_normalized")
-        val_dataset = PointCloudsInFilesPreSampled(val_dataset_path, '*.las', dataset=use_datasets)
-        test_dataset = PointCloudsInFilesPreSampled(test_dataset_path, '*.las', dataset=use_datasets)
+        val_dataset = PointCloudsInFilesPreSampled(r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points_val",
+                                                     '*.las', dataset=use_datasets, use_column="intensity_normalized")
+        test_dataset = PointCloudsInFilesPreSampled(r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points_test",
+                                                     '*.las', dataset=use_datasets, use_column="intensity_normalized")
+
     else:
-        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=hp['num_points'], use_columns=use_columns,
                                            filter_height=hp['ground_filter_height'], dataset=use_datasets)
-        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
+        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=hp['num_points'], use_columns=use_columns,
                                          filter_height=hp['ground_filter_height'], dataset=use_datasets)
-        test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points,
+        test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=hp['num_points'],
                                           use_columns=use_columns, filter_height=0.2, dataset=use_datasets)
 
     # Augment training data
@@ -89,7 +92,7 @@ if __name__ == '__main__':
             aug_trainset = AugmentPointCloudsInFiles(
                 train_dataset_path,
                 "*.las",
-                max_points=num_points,
+                max_points=hp['num_points'],
                 use_columns=use_columns,
                 filter_height=hp['ground_filter_height'],
                 dataset=use_datasets
@@ -240,4 +243,4 @@ if __name__ == '__main__':
     plt.legend(handles=[red_patch, blue_patch])
 
     # Apply the model to test data ---------------------------------------------------------------------------------
-    test_model(point_cloud_vis=False, use_columns=use_columns, use_datasets=use_datasets, num_points=num_points)
+    test_model(point_cloud_vis=False, use_columns=use_columns, use_datasets=use_datasets, num_points=hp['num_points'])
