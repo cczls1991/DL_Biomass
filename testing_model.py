@@ -3,6 +3,7 @@ import glob
 import torch
 from torch_geometric.loader import DataListLoader
 from pointcloud_dataloader import PointCloudsInFiles
+from pointcloud_dataloader import PointCloudsInFilesPreSampled
 from matplotlib import pyplot as plt
 import sklearn.metrics as metrics
 from math import sqrt
@@ -12,10 +13,13 @@ import numpy as np
 import matplotlib.patches as mpatches
 
 def test_model(model_file=None,
-               point_cloud_vis=False,
-               use_columns=None,
-               use_datasets=None,  # Possible datasets: BC, RM, PF
-               num_points=200):
+                test_dataset_path=r'D:\Sync\Data\Model_Input\test',
+                use_presampled=True,
+                point_cloud_vis=False,
+                use_columns=None,
+                use_datasets=None,  # Possible datasets: BC, RM, PF
+                num_points=200 #Num points is only used if use_presampled=False
+               ):
 
     if use_datasets is None:
         use_datasets = ["BC", "RM", "PF"]
@@ -42,10 +46,15 @@ def test_model(model_file=None,
     model = model.to(device)
 
     # Get test data
-    test_dataset_path = r'D:\Sync\Data\Model_Input\test'
-    test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points, use_columns=use_columns,
-                                      filter_height=0.2, dataset=use_datasets)
+    if use_presampled is True:
+        test_dataset = PointCloudsInFilesPreSampled(test_dataset_path,
+                                                    '*.las', dataset=use_datasets, use_column="intensity_normalized")
+    else:
+        test_dataset = PointCloudsInFiles(test_dataset_path, '*.las', max_points=num_points,
+                                          use_columns=use_columns, filter_height=0.2, dataset=use_datasets)
+
     test_loader = DataListLoader(test_dataset, batch_size=len(test_dataset), shuffle=False, num_workers=0)
+
 
     # Apply the model to test data --------------------------------------------------------------------------
     model.eval()
@@ -321,7 +330,17 @@ def test_model(model_file=None,
         plt.show()
 
 if __name__ == '__main__':
-    test_model(model_file="D:\Sync\DL_Development\Models\DL_model_2022_08_11_09_58.model",
+
+    # Load most recent model
+    folder_path = r'D:\Sync\DL_Development\Models'
+    file_type = r'\*.model'
+    files = glob.glob(folder_path + file_type)
+    model_filepath = max(files, key=os.path.getctime)
+
+    #Apply model to training dataset
+    test_model(model_file=model_filepath,
+               test_dataset_path=r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points_test',
+               use_presampled=True,
                point_cloud_vis=True,
                use_columns=['intensity_normalized'],
                use_datasets=["BC", "RM", "PF"],  # Possible datasets: BC, RM, PF

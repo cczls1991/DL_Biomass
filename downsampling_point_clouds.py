@@ -217,13 +217,13 @@ def check_resampling(in_dir=None):
 if __name__ == "__main__":
 
     in_path = r"D:\Sync\Data\Model_Input\lidar_data"
-    out_path = r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points"
+    out_path = r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points"
 
     resample_point_clouds(
         in_dir=in_path,
         out_dir=out_path,
         use_columns=["intensity_normalized"],
-        num_points=3072,
+        num_points=7168,
         samp_meth="fps",
     )
 

@@ -181,7 +181,7 @@ class PointCloudsInFilesPreSampled(InMemoryDataset):
 
         #Get plot ID from filename
         PlotID = self.files[idx].name.split(".")[0]
-        PlotID = PlotID.replace('_fps_3072', '') #Remove unwanted part of filename
+        PlotID = PlotID.replace('_fps_7168', '') #Remove unwanted part of filename
 
         #Load biomass data
         input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)

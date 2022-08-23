@@ -10,7 +10,7 @@ from torch_geometric.data import Data, InMemoryDataset
 import pandas as pd
 from itertools import compress
 
-
+#NOTE: AugmentPreSampledPoints only works if you are using normalized intensity as the use_columns attribute.
 
 
 def read_las(pointcloudfile, get_attributes=True, useevery=1, filter_height=0):
@@ -223,3 +223,85 @@ class AugmentPointCloudsInFiles(InMemoryDataset):
             return None
         return sample
 
+class AugmentPreSampledPoints(InMemoryDataset):
+    """Point cloud dataset where one data point is a file."""
+
+    def __init__(
+            self, root_dir, glob="*", use_columns="intensity_normalized", dataset=("RM", "PF", "BC")
+    ):
+        """
+        Args:
+            root_dir (string): Directory with the datasets
+            glob (string): Glob string passed to pathlib.Path.glob
+            use_columns (string): Column names to add as additional input
+            dataset (list[string]): dataset(s) which will be used in training and validation
+        """
+
+        #List files
+        self.files = list(Path(root_dir).glob(glob))
+        #Get dataset source for each LAS file
+        dataset_ID = []
+        for i in range(0, len(self.files), 1):
+            dataset_ID.append(self.files[i].name.split(".")[0][0:2])
+        #Convert to pandas series
+        dataset_ID = pd.Series(dataset_ID, dtype=str)
+        #Determine whether or not to keep each file based on dataset ID
+        dataset_filter = dataset_ID.isin(dataset).tolist()
+        #Filter files to target dataset(s)
+        self.files = list(compress(self.files, dataset_filter))
+
+        #Set up use columns
+        self.use_columns = use_columns
+
+        super().__init__()
+
+    def __len__(self):
+        # Return length
+        return len(self.files)
+
+    def __getitem__(self, idx):
+        if torch.is_tensor(idx):
+            idx = idx.tolist()
+
+        # Get file name
+        filename = str(self.files[idx])
+
+        # Read las/laz file
+        coords, attrs = read_las(filename, get_attributes=True, filter_height=0)
+
+        #Select target variable (use_columns) from attributes dictionary (in this case, its intensity)
+        attrs = {key: attrs[key] for key in [self.use_columns]}
+        x = np.array(list(attrs.items())[0][1])
+        x = np.reshape(x, [len(coords), 1])
+
+        # Apply augmentation
+        coords, x = point_removal(coords, x)
+        coords, x = random_noise(coords, 1, x)
+        coords = rotate_points(coords)
+
+        # Load biomass data ---------------------------------------------------------------------------------
+
+        #Get plot ID from filename
+        PlotID = self.files[idx].name.split(".")[0]
+        PlotID = PlotID.replace('_fps_7168', '')  # Remove unwanted part of filename
+
+        #Load biomass data
+        input_table = pd.read_csv(r"D:\Sync\Data\Model_Input\model_input_plot_biomass_data.csv", sep=",", header=0)
+        #Extract bark, branch, foliage, wood values for the correct plot ID
+        bark_agb = input_table.loc[input_table["PlotID"] == PlotID]["bark_btphr"].values[0]
+        branch_agb = input_table.loc[input_table["PlotID"] == PlotID]["branch_btphr"].values[0]
+        foliage_agb = input_table.loc[input_table["PlotID"] == PlotID]["foliage_btphr"].values[0]
+        wood_agb = input_table.loc[input_table["PlotID"] == PlotID]["wood_btphr"].values[0]
+        #Combine AGB targets into a list
+        target = [bark_agb, branch_agb, foliage_agb, wood_agb]
+
+        #Aggregate point cloud and biomass targets for the given sample
+        sample = Data(
+            x=torch.from_numpy(x).float(),
+            y=torch.from_numpy(np.array(target)).float(),
+            pos=torch.from_numpy(coords).float(),
+            PlotID=PlotID)
+
+        if coords.shape[0] < 100:
+            return None
+        return sample
