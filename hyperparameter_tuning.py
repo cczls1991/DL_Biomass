@@ -6,7 +6,9 @@ from torch_geometric.loader import DataListLoader
 from torch_geometric.nn import DataParallel
 from pointnet2_regressor import Net
 from pointcloud_dataloader import PointCloudsInFiles
+from pointcloud_dataloader import PointCloudsInFilesPreSampled
 from augmentation import AugmentPointCloudsInFiles
+from augmentation import AugmentPreSampledPoints
 import optuna
 from optuna.trial import TrialState
 import matplotlib.pyplot as plt
@@ -14,6 +16,7 @@ import pandas as pd
 from datetime import datetime as dt
 import joblib
 import glob
+from tqdm import tqdm
 
 # Supress warnings
 import warnings
@@ -23,34 +26,44 @@ warnings.filterwarnings("ignore")
 if __name__ == '__main__':
 
     # Set note for this optuna study
-    comment = "multi_output"
+    comment = "using_presampled_poi"
 
     # Set optuna study parameters
     pruning = True  # Should optuna prune trials that are going badly?
     continue_study = False  # Specify whether or not to continue previous study
     n_trials = None  # Number of trials to run, takes priority over run time
-    run_time = 3600 * 12  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+    run_time = 3600 * 15  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
 
     # SET UP MODEL PARAMETERS
     use_columns = ['intensity_normalized']
     use_datasets = ["BC", "RM", "PF"]  # Possible datasets: BC, RM, PF
     early_stopping = True
-    max_num_epochs = 150
-    train_dataset_path = r'D:\Sync\Data\Model_Input\train'
-    val_dataset_path = r'D:\Sync\Data\Model_Input\val'
+    max_num_epochs = 200
+    use_presampled = True
+
+    #Specify dataset paths (dependent on whether or not using pre-sampled)
+    if use_presampled is True:
+        print("\nUsing pre-sampled points!\n")
+        train_dataset_path = fr'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_train'
+        val_dataset_path = r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_val'
+        test_dataset_path = r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_test'
+    else:
+        train_dataset_path = r'D:\Sync\Data\Model_Input\train'
+        val_dataset_path = r'D:\Sync\Data\Model_Input\val'
+        test_dataset_path = r'D:\Sync\Data\Model_Input\test'
 
 
     # Define obective function used in optuna
     def objective(trial):
 
         # SET UP TUNING PARAMETERS
-        cfg = {'lr': trial.suggest_float("lr", 1e-5, 1e-1, log=True),
-               'weight_decay': trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
+        cfg = {'lr': trial.suggest_float("lr", 1e-6, 1e-1, log=True),
                'num_augs': trial.suggest_int('num_augs', low=0, high=10, step=1),
-               'batch_size': 32,  # trial.suggest_categorical('batch_size', [1, 16, 32, 64]),
-               'num_points': 1000,  # trial.suggest_int('num_points', low=5000, high=10_000, step=1000),
+               'batch_size': trial.suggest_int('batch_size', low=8, high=40, step=2),
+               'patience': trial.suggest_int('patience', low=5, high=30, step=5),
+               'weight_decay': 8.0250963438986e-05, # trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
+               'num_points': 7168,  # trial.suggest_int('num_points', low=5000, high=10_000, step=1000),
                'neuron_multiplier': 0,  # trial.suggest_int('neuron_multiplier', low=0, high=2, step=2),
-               'patience': 10,  # trial.suggest_int('patience', low=10, high=100, step=10),
                'ground_filter_height': 0,  # trial.suggest_float("ground_filter_height", 0, 2, step=0.2),
                'activation_function': 'ReLU',
                # trial.suggest_categorical('activation_function', ['ReLU', 'LeakyReLU', 'ELU']),
@@ -65,32 +78,57 @@ if __name__ == '__main__':
                     dropout_probability=cfg['dropout_probability']
                     )
 
-        # Get training val, and test datasets
-        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=cfg['num_points'],
-                                           use_columns=use_columns,
-                                           filter_height=cfg['ground_filter_height'], dataset=use_datasets)
-        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=cfg['num_points'],
-                                         use_columns=use_columns,
-                                         filter_height=cfg['ground_filter_height'], dataset=use_datasets)
+        if use_presampled == True:
+            # Load pre sampled data
+            train_dataset = PointCloudsInFilesPreSampled(train_dataset_path,
+                                                         '*.las', dataset=use_datasets,
+                                                         use_column="intensity_normalized")
+            val_dataset = PointCloudsInFilesPreSampled(val_dataset_path,
+                                                       '*.las', dataset=use_datasets, use_column="intensity_normalized")
 
-        # Augment training data
-        if cfg['num_augs'] > 0:
-            for i in range(cfg['num_augs']):
-                aug_trainset = AugmentPointCloudsInFiles(
-                    train_dataset_path,
-                    "*.las",
-                    max_points=cfg['num_points'],
-                    use_columns=use_columns,
-                    filter_height=cfg['ground_filter_height'],
-                    dataset=use_datasets
-                )
+            # Augment pre-sampled training data
+            if cfg['num_augs'] > 0:
+                for i in range(cfg['num_augs']):
+                    aug_trainset = AugmentPreSampledPoints(
+                        train_dataset_path,
+                        "*.las",
+                        use_columns="intensity_normalized",
+                        dataset=use_datasets
+                    )
 
-                # Concat training and augmented training datasets
-                train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
+                    # Concat training and augmented training datasets
+                    train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
+                print(
+                    f"Adding {cfg['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
 
-        # Set up dataset loaders
+        else:
+            train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=cfg['num_points'],
+                                               use_columns=use_columns,
+                                               filter_height=cfg['ground_filter_height'], dataset=use_datasets)
+            val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=cfg['num_points'],
+                                             use_columns=use_columns,
+                                             filter_height=cfg['ground_filter_height'], dataset=use_datasets)
+
+            # Augment training data
+            if cfg['num_augs'] > 0:
+                for i in range(cfg['num_augs']):
+                    aug_trainset = AugmentPointCloudsInFiles(
+                        train_dataset_path,
+                        "*.las",
+                        max_points=cfg['num_points'],
+                        use_columns=use_columns,
+                        filter_height=cfg['ground_filter_height'],
+                        dataset=use_datasets
+                    )
+
+                    # Concat training and augmented training datasets
+                    train_dataset = torch.utils.data.ConcatDataset([train_dataset, aug_trainset])
+                print(
+                    f"Adding {cfg['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
+
+            # Set up pytorch training and validation loaders
         train_loader = DataListLoader(train_dataset, batch_size=cfg['batch_size'], shuffle=True)
-        val_loader = DataListLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=True)
+        val_loader = DataListLoader(val_dataset, batch_size=cfg['batch_size'], shuffle=False)
 
         # Initiate parallel processing
         model = DataParallel(model)
@@ -112,7 +150,7 @@ if __name__ == '__main__':
         for epoch in range(0, max_num_epochs):
             model.train()
             loss_list = []
-            for idx, data_list in enumerate(train_loader):
+            for idx, data_list in enumerate(tqdm(train_loader, colour="green", position=0, leave=True, desc=f"Epoch {epoch} training")):
                 optimizer.zero_grad()
 
                 # Predict values and ensure that pred. and obs. tensors have same shape

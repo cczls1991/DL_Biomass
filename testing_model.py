@@ -331,17 +331,12 @@ def test_model(model_file=None,
 
 if __name__ == '__main__':
 
-    # Load most recent model
-    folder_path = r'D:\Sync\DL_Development\Models'
-    file_type = r'\*.model'
-    files = glob.glob(folder_path + file_type)
-    model_filepath = max(files, key=os.path.getctime)
 
     #Apply model to training dataset
-    test_model(model_file=model_filepath,
-               test_dataset_path=r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_3072_points_test',
+    test_model(model_file=None,
+               test_dataset_path=r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_test',
                use_presampled=True,
-               point_cloud_vis=True,
+               point_cloud_vis=False,
                use_columns=['intensity_normalized'],
                use_datasets=["BC", "RM", "PF"],  # Possible datasets: BC, RM, PF
                num_points=7_000)

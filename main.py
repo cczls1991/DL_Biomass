@@ -21,6 +21,7 @@ from pathlib import Path
 
 # Supress warnings
 import warnings
+
 warnings.filterwarnings("ignore")
 
 if __name__ == '__main__':
@@ -36,7 +37,7 @@ if __name__ == '__main__':
     # Specify hyperparameter tunings
     hp = {'lr': 0.0005753187813135093,
           'weight_decay': 8.0250963438986e-05,
-          'num_points': 3702, #Note that this is currently overwritten by ,
+          'num_points': 7168,  # Note that this is currently overwritten by ,
           'batch_size': 28,
           'num_augs': 7,
           'patience': 5,
@@ -46,10 +47,10 @@ if __name__ == '__main__':
           'dropout_probability': 0.55
           }
 
-    #Specify dataset paths (depended on point density)
+    # Specify dataset paths (dependent on whether or not using pre-sampled)
     if use_presampled is True:
         print("\nUsing pre-sampled points!\n")
-        train_dataset_path = r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_train'
+        train_dataset_path = fr'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_train'
         val_dataset_path = r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_val'
         test_dataset_path = r'D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points_test'
     else:
@@ -70,7 +71,7 @@ if __name__ == '__main__':
     # Device, model and optimizer setup
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    #Set model
+    # Set model
     model = Net(num_features=len(use_columns),
                 activation_function=hp['activation_function'],
                 neuron_multiplier=hp['neuron_multiplier'],
@@ -81,13 +82,13 @@ if __name__ == '__main__':
     optimizer = torch.optim.Adam(model.parameters(), lr=hp['lr'], weight_decay=hp['weight_decay'])
 
     if use_presampled == True:
-        #Load pre sampled data
+        # Load pre sampled data
         train_dataset = PointCloudsInFilesPreSampled(train_dataset_path,
                                                      '*.las', dataset=use_datasets, use_column="intensity_normalized")
         val_dataset = PointCloudsInFilesPreSampled(val_dataset_path,
-                                                     '*.las', dataset=use_datasets, use_column="intensity_normalized")
+                                                   '*.las', dataset=use_datasets, use_column="intensity_normalized")
         test_dataset = PointCloudsInFilesPreSampled(test_dataset_path,
-                                                     '*.las', dataset=use_datasets, use_column="intensity_normalized")
+                                                    '*.las', dataset=use_datasets, use_column="intensity_normalized")
 
         # Augment pre-sampled training data
         if hp['num_augs'] > 0:
@@ -105,11 +106,12 @@ if __name__ == '__main__':
                 f"Adding {hp['num_augs']} augmentations of original {len(aug_trainset)} for a total of {len(train_dataset)} training samples.")
 
     else:
-        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=hp['num_points'], use_columns=use_columns,
+        train_dataset = PointCloudsInFiles(train_dataset_path, '*.las', max_points=hp['num_points'],
+                                           use_columns=use_columns,
                                            filter_height=hp['ground_filter_height'], dataset=use_datasets)
-        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=hp['num_points'], use_columns=use_columns,
+        val_dataset = PointCloudsInFiles(val_dataset_path, '*.las', max_points=hp['num_points'],
+                                         use_columns=use_columns,
                                          filter_height=hp['ground_filter_height'], dataset=use_datasets)
-
 
         # Augment training data
         if hp['num_augs'] > 0:
@@ -137,38 +139,40 @@ if __name__ == '__main__':
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
     model = model.to(device)
 
+
     # Define training function
-    def train():
+    def train(epoch):
         model.train()
         loss_list = []
-        for idx, data_list in enumerate(train_loader):
+        for idx, data_list in enumerate(tqdm(train_loader, colour="green", position=0, leave=True, desc=f"Epoch {epoch} training")):
             optimizer.zero_grad()
 
             # Predict values and ensure that pred. and obs. tensors have same shape
             outs = model(data_list)
             y = torch.reshape(torch.cat([data.y for data in data_list]).to(outs.device), (len(data_list), 4))
 
-            #Compute mse loss for each component
-            loss_bark = F.mse_loss(y[:,0], outs[:,0])
-            loss_branch = F.mse_loss(y[:,1], outs[:,1])
-            loss_foliage = F.mse_loss(y[:,2], outs[:,2])
-            loss_wood = F.mse_loss(y[:,3], outs[:,3])
+            # Compute mse loss for each component
+            loss_bark = F.mse_loss(y[:, 0], outs[:, 0])
+            loss_branch = F.mse_loss(y[:, 1], outs[:, 1])
+            loss_foliage = F.mse_loss(y[:, 2], outs[:, 2])
+            loss_wood = F.mse_loss(y[:, 3], outs[:, 3])
 
-            #Set the % contribution of each component to total tree biomass
-            a = 1/11 # Bark comprises ~11% of tree biomass across entire dataset
-            b = 1/12 # Branches comprise ~12% of tree biomass across entire dataset
-            c = 1/5 # Foliage comprises ~5% of tree biomass across entire dataset
-            d = 1/72 # Wood comprises ~72% of tree biomass across entire dataset
+            # Set the % contribution of each component to total tree biomass
+            a = 1 / 11  # Bark comprises ~11% of tree biomass across entire dataset
+            b = 1 / 12  # Branches comprise ~12% of tree biomass across entire dataset
+            c = 1 / 5  # Foliage comprises ~5% of tree biomass across entire dataset
+            d = 1 / 72  # Wood comprises ~72% of tree biomass across entire dataset
 
-            #Calculate mse loss using loss for each component relative to its contribution to total biomass
+            # Calculate mse loss using loss for each component relative to its contribution to total biomass
             loss = loss_bark * a + loss_branch * b + loss_foliage * c + loss_wood * d
 
             loss.backward()
             optimizer.step()
             if (idx + 1) % 1 == 0:
-                tqdm.write(str(f'[{idx + 1}/{len(train_loader)}] Loss: {loss.to("cpu"):.4f} '))
+                #tqdm.write(str(f'[{idx + 1}/{len(train_loader)}] Loss: {loss.to("cpu"):.4f} '))
                 loss_list.append(loss.detach().to("cpu").numpy())
         return np.mean(loss_list)
+
 
     # Define validation function
     def val(loader, ep_id):
@@ -206,11 +210,11 @@ if __name__ == '__main__':
 
         # Training loop
         for epoch in tqdm(range(0, num_epochs), colour="green", position=0, leave=True):
-            train_mse = train()
+            train_mse = train(epoch)
             torch.cuda.empty_cache()
             val_mse = val(val_loader, epoch)
 
-            #Save epoch train/val MSE
+            # Save epoch train/val MSE
             with open(model_path.replace('.model', '.csv'), 'a') as f:
                 f.write(
                     f'{epoch}, {train_mse}, {val_mse}\n'
@@ -229,7 +233,8 @@ if __name__ == '__main__':
                     last_val_mse = val_mse
 
             # Report epoch stats
-            tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
+            tqdm.write("    Epoch: " + str(epoch) + "  | Mean val MSE: " + str(
+                round(val_mse, 2)) + "  | Mean train MSE: " + str(round(train_mse, 2)))
 
             # Determine whether to save the model based on val MSE
             val_mse_list.append(val_mse)
@@ -266,5 +271,12 @@ if __name__ == '__main__':
     plt.legend(handles=[red_patch, blue_patch])
 
     # Apply the model to test data ---------------------------------------------------------------------------------
-    test_model(point_cloud_vis=False, test_dataset_path=test_dataset_path,
-               use_columns=use_columns, use_datasets=use_datasets, num_points=hp['num_points'])
+
+    test_model(model_file=None,
+               test_dataset_path=test_dataset_path,
+               use_presampled=use_columns,
+               point_cloud_vis=False,
+               use_columns=use_columns,
+               use_datasets=use_datasets,  # Possible datasets: BC, RM, PF
+               num_points=hp['num_points']
+               )  # Num points is only used if use_presampled=False)
