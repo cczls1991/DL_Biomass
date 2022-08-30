@@ -47,7 +47,7 @@ class Net(torch.nn.Module):
         self.sa2_module = SAModule(0.25, 8, MLP([128*neuron_multiplier + 3, 128*neuron_multiplier, 128*neuron_multiplier, 256*neuron_multiplier], act=activation_function))
         self.sa3_module = GlobalSAModule(MLP([256*neuron_multiplier + 3, 256*neuron_multiplier, 512*neuron_multiplier, 1024*neuron_multiplier], act=activation_function))
 
-        self.mlp = MLP([1024*neuron_multiplier, 128*neuron_multiplier, 128*neuron_multiplier, 4], act=None, dropout=0.5)  # No activation function for the output layer following Oehmcke
+        self.mlp = MLP([1024*neuron_multiplier, 128*neuron_multiplier, 128*neuron_multiplier, 4], act=None, dropout=dropout_probability)  # No activation function for the output layer following Oehmcke
 
     def forward(self, data):
         sa0_out = (data.x, data.pos, data.batch)

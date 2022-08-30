@@ -30,15 +30,15 @@ if __name__ == '__main__':
 
     # Set optuna study parameters
     pruning = True  # Should optuna prune trials that are going badly?
-    continue_study = False  # Specify whether or not to continue previous study
+    continue_study = True  # Specify whether or not to continue previous study
     n_trials = None  # Number of trials to run, takes priority over run time
-    run_time = 3600 * 15  # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
+    run_time = 3600 * 24 * 4 # Time in seconds that the hyperparameter tuning will run for (multiply by 3600 to convert to hours)
 
     # SET UP MODEL PARAMETERS
     use_columns = ['intensity_normalized']
     use_datasets = ["BC", "RM", "PF"]  # Possible datasets: BC, RM, PF
     early_stopping = True
-    max_num_epochs = 200
+    max_num_epochs = 7168
     use_presampled = True
 
     #Specify dataset paths (dependent on whether or not using pre-sampled)
@@ -59,7 +59,7 @@ if __name__ == '__main__':
         # SET UP TUNING PARAMETERS
         cfg = {'lr': trial.suggest_float("lr", 1e-6, 1e-1, log=True),
                'num_augs': trial.suggest_int('num_augs', low=0, high=10, step=1),
-               'batch_size': trial.suggest_int('batch_size', low=8, high=40, step=2),
+               'batch_size': trial.suggest_int('batch_size', low=8, high=40, step=4),
                'patience': trial.suggest_int('patience', low=5, high=30, step=5),
                'weight_decay': 8.0250963438986e-05, # trial.suggest_float('weight_decay', 1e-10, 1e-3, log=True),
                'num_points': 7168,  # trial.suggest_int('num_points', low=5000, high=10_000, step=1000),
@@ -150,7 +150,7 @@ if __name__ == '__main__':
         for epoch in range(0, max_num_epochs):
             model.train()
             loss_list = []
-            for idx, data_list in enumerate(tqdm(train_loader, colour="green", position=0, leave=True, desc=f"Epoch {epoch} training")):
+            for idx, data_list in enumerate(tqdm(train_loader, colour="green", position=0, leave=False, desc=f"Epoch {epoch} training")):
                 optimizer.zero_grad()
 
                 # Predict values and ensure that pred. and obs. tensors have same shape

@@ -339,7 +339,7 @@ if __name__ == '__main__':
                point_cloud_vis=False,
                use_columns=['intensity_normalized'],
                use_datasets=["BC", "RM", "PF"],  # Possible datasets: BC, RM, PF
-               num_points=7_000)
+               num_points=7168)
 
 
 

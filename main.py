@@ -35,17 +35,19 @@ if __name__ == '__main__':
     use_presampled = True
 
     # Specify hyperparameter tunings
-    hp = {'lr': 0.0005753187813135093,
+    hp = {'lr': 0.00179966410046844,
           'weight_decay': 8.0250963438986e-05,
-          'num_points': 7168,  # Note that this is currently overwritten by ,
-          'batch_size': 28,
-          'num_augs': 7,
-          'patience': 5,
-          'ground_filter_height': 0.2,
+          'num_points': 7168,  # This is currently overwritten if use_presampled is True,
+          'batch_size': 36,
+          'num_augs': 10,
+          'patience': 10,
+          'ground_filter_height': 0,
           'activation_function': "ReLU",
           'neuron_multiplier': 0,
-          'dropout_probability': 0.55
+          'dropout_probability': 0.5
           }
+
+
 
     # Specify dataset paths (dependent on whether or not using pre-sampled)
     if use_presampled is True:
@@ -144,7 +146,7 @@ if __name__ == '__main__':
     def train(epoch):
         model.train()
         loss_list = []
-        for idx, data_list in enumerate(tqdm(train_loader, colour="green", position=0, leave=True, desc=f"Epoch {epoch} training")):
+        for idx, data_list in enumerate(tqdm(train_loader, colour="red", position=1, leave=False, desc=f"Epoch {epoch} training")):
             optimizer.zero_grad()
 
             # Predict values and ensure that pred. and obs. tensors have same shape
@@ -272,11 +274,11 @@ if __name__ == '__main__':
 
     # Apply the model to test data ---------------------------------------------------------------------------------
 
+    #Apply model to training dataset
     test_model(model_file=None,
                test_dataset_path=test_dataset_path,
-               use_presampled=use_columns,
+               use_presampled=True,
                point_cloud_vis=False,
-               use_columns=use_columns,
-               use_datasets=use_datasets,  # Possible datasets: BC, RM, PF
-               num_points=hp['num_points']
-               )  # Num points is only used if use_presampled=False)
+               use_columns=['intensity_normalized'],
+               use_datasets=["BC", "RM", "PF"],  # Possible datasets: BC, RM, PF
+               num_points=7168)

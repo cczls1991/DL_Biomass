@@ -10,6 +10,9 @@ from tqdm import tqdm
 
 from matplotlib import pyplot as plt
 
+import pyarrow.parquet as pq
+import pandas as pd
+
 
 #NOTE: this script only works if you are using normalized intensity as the use_column attribute.
 
@@ -122,7 +125,7 @@ def write_las(outpoints, outfilepath, attribute_dict):
     las.write(outfilepath)
 
 
-def resample_point_clouds(in_dir, out_dir, num_points, use_columns = [], samp_meth = "random", glob="*.las"):
+def resample_point_clouds(in_dir, out_dir, num_points, use_columns = [], samp_meth = "random", glob="*.las", use_paqruet=True):
 
     # Create training set for each point density
     files = list(Path(in_dir).glob(glob))
@@ -149,7 +152,7 @@ def resample_point_clouds(in_dir, out_dir, num_points, use_columns = [], samp_me
                 use_idx = np.random.choice(
                     coords.shape[0], num_points, replace=False
                 )
-            if samp_meth == "fps":
+            elif samp_meth == "fps":
                 use_idx = farthest_point_sampling(coords, num_points)
         else:
             use_idx = np.random.choice(coords.shape[0], num_points, replace=True)
@@ -164,29 +167,52 @@ def resample_point_clouds(in_dir, out_dir, num_points, use_columns = [], samp_me
         # Centralize coordinates
         coords = coords - np.mean(coords, axis=0)
 
-        # Write out files
-        write_las(outpoints=coords,
-                  outfilepath=os.path.join(out_dir, str(plotID + "_" + samp_meth + "_" +  str(num_points) + ".las")),
-                  attribute_dict={'intensity_normalized': attrs_arr}
-                  )
+        if use_paqruet is True:
+            #Combine coords and attributes arrays
+            coors_attr = np.column_stack((coords, attrs_arr))
+            #Convert nparray to pandas df
+            df = pd.DataFrame(coors_attr, columns=['x', 'y', 'z', 'i_norm'])
+            #Write parquet file
+            df.to_parquet(os.path.join(out_dir, str(plotID + "_" + samp_meth + "_" +  str(num_points) + ".parq")))
+
+        else:
+            # Write file in LAS format
+            write_las(outpoints=coords,
+                      outfilepath=os.path.join(out_dir, str(plotID + "_" + samp_meth + "_" +  str(num_points) + ".las")),
+                      attribute_dict={'intensity_normalized': attrs_arr}
+                      )
 
 
 def check_resampling(in_dir=None):
 
     #Get file list
-    files = list(Path(in_dir).glob("*.las"))
-    #Random sample
+    files = list(Path(in_dir).glob("*"))
+    # Random sample of 4 files for vis
     files = random.sample(files, 4)
-    #Create empty coords list
+    #Check if files are parq or las
+    ext = os.path.splitext(files[0])[1]
+    # Create empty coords list
     coords_list = []
-    # Grab the LAS files of the four plots
-    for i in range(0, len(files), 1):
-        # Get filepath
-        las_path = files[i]
-        # Load coords for each LAS
-        coords_i = read_las(las_path, get_attributes=False)
-        # Add to list
-        coords_list.append(coords_i)
+    #Load parquet file
+    if ext == ".parq":
+        print("Loading parquet files.")
+        # Grab the LAS files of the four plots
+        for i in range(0, len(files), 1):
+            # Get filepath
+            parq_path = files[i]
+            coords_attrs = pd.read_parquet(parq_path, columns=["x", "y", "z"])
+            coords_i = coords_attrs.to_numpy()
+            # Add to list
+            coords_list.append(coords_i)
+    else:
+        # Grab the LAS files of the four plots
+        for i in range(0, len(files), 1):
+            # Get filepath
+            las_path = files[i]
+            # Load coords for each LAS
+            coords_i = read_las(las_path, get_attributes=False)
+            # Add to list
+            coords_list.append(coords_i)
 
     # set up a figure twice as wide as it is tall
     fig = plt.figure(figsize=[30, 30])
@@ -217,7 +243,9 @@ def check_resampling(in_dir=None):
 if __name__ == "__main__":
 
     in_path = r"D:\Sync\Data\Model_Input\lidar_data"
-    out_path = r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_points"
+    out_path = r"D:\Sync\Data\Model_Input\resampled_point_clouds\fps_7168_parquet"
+
+    check_resampling(out_path)
 
     resample_point_clouds(
         in_dir=in_path,
@@ -225,6 +253,7 @@ if __name__ == "__main__":
         use_columns=["intensity_normalized"],
         num_points=7168,
         samp_meth="fps",
+        use_paqruet=True
     )
 
     # Randomly sample 4 plots to check downsampling--------------------------------------------------------------------
